@@ -16,3 +16,10 @@ void lockMutex(FakeCPU* cpu) {
 void unlockMutex(FakeCPU* cpu) {
     pthread_mutex_unlock(&cpu->mutex);
 }
+
+//Inizializzazione della CPU
+void FakeCPU_init(FakeCPU* cpu) {
+    cpu->running = NULL; //Setta il puntatore al processo in running a NULL
+    //List_init(&(cpu->ready)); //Inizializza lista dei processi pronti
+    initMutex(cpu); //Inizializza il mutex
+}

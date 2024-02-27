@@ -4,9 +4,10 @@ AR=ar
 
 OBJS=linked_list.o\
      fake_process.o\
-     fake_os.o
+     fake_os.o\
+     fake_cpu.o
 
-HEADERS=linked_list.h  fake_process.h
+HEADERS=linked_list.h  fake_process.h  fake_cpu.h
 
 BINS=fake_process_test sched_sim
 

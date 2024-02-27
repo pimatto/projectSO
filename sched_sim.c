@@ -4,7 +4,7 @@
 #include <unistd.h>
 #include <termios.h>
 #include "fake_os.h"
-
+#include "fake_cpu.h"
 
 //Le API di termios vengono utilizzate per modificare temporaneamente la modalità di input 
 //della tastiera in modo da consentire la lettura di un singolo carattere senza la necessità
@@ -81,7 +81,47 @@ typedef struct {
 //Funzione di scheduling RR
 void schedRR(FakeOS* os, void* args_){
   SchedRRArgs* args=(SchedRRArgs*)args_;
+  
+  
+  //MULTICPU
+  //Itero per ogni CPU della lista contenuta in FakeOS
+  ListItem* currentItem = os->cpu_list.first;
+  while (currentItem){
+    FakeCPU* cpu = (FakeCPU*) currentItem;
+    currentItem = currentItem->next;
+    lockMutex(cpu); //Aquisisce il mutex della CPU
+    // look for the first process in ready
+    // if none, return
+    if (! os->ready.first){
+      unlockMutex(cpu);
+      return;
+    }
 
+    FakePCB* pcb=(FakePCB*) List_popFront(&os->ready);
+    cpu->running=pcb; //Assegnazione del proocesso alla CPU
+
+    assert(pcb->events.first); //Assicura che il processo abbia eventi
+    ProcessEvent* e = (ProcessEvent*)pcb->events.first;
+    assert(e->type==CPU);
+
+    // look at the first event
+    // if duration>quantum
+    // push front in the list of event a CPU event of duration quantum
+    // alter the duration of the old event subtracting quantum
+    if (e->duration>args->quantum) {
+      ProcessEvent* qe=(ProcessEvent*)malloc(sizeof(ProcessEvent));
+      qe->list.prev=qe->list.next=0;
+      qe->type=CPU;
+      qe->duration=args->quantum;
+      e->duration-=args->quantum;
+      List_pushFront(&pcb->events, (ListItem*)qe);
+    }
+    unlockMutex(cpu); //Rilascia il mutex della CPU
+  }
+  
+
+
+  /*ORIGINALE
   // look for the first process in ready
   // if none, return
   if (! os->ready.first)
@@ -105,7 +145,7 @@ void schedRR(FakeOS* os, void* args_){
     qe->duration=args->quantum;
     e->duration-=args->quantum;
     List_pushFront(&pcb->events, (ListItem*)qe);
-  }
+  }*/
 };
 
 int main(int argc, char** argv) {
@@ -143,13 +183,24 @@ int main(int argc, char** argv) {
   }
   printf("\nHai selezionato %d CPU.\n", selectedCPU);
 
-
+  
 
   FakeOS_init(&os);
   SchedRRArgs srr_args;
   srr_args.quantum=5;
   os.schedule_args=&srr_args;
   os.schedule_fn=schedRR;
+
+
+  //Inizializzazione delle CPU
+  for(int i = 0; i < selectedCPU; i++){
+    FakeCPU* cpu = (FakeCPU*)malloc(sizeof(FakeCPU));
+    FakeCPU_init(cpu);
+    initMutex(cpu); //Inizializzazione del mutex per la CPU
+    List_pushBack(&os.cpu_list, (ListItem*) cpu);
+  }
+  
+
   
   for (int i=1; i<argc; ++i){
     FakeProcess new_process;
@@ -163,10 +214,33 @@ int main(int argc, char** argv) {
     }
   }
   printf("num processes in queue %d\n", os.processes.size);
-  while(os.running
+  while(running_cpu(&os)
         || os.ready.first
         || os.waiting.first
         || os.processes.first){
-    FakeOS_simStep(&os);
+    FakeOS_simStep(&os, selectedCPU);
+  }
+
+  //Deallocazione delle CPU
+  ListItem* currentItem = os.cpu_list.first;
+  while (currentItem) {
+      ListItem* nextItem = currentItem->next;
+      free(currentItem);
+      currentItem = nextItem;
+  }
+}
+
+
+
+
+
+int running_cpu(FakeOS* os){
+  ListItem* currentItem = os->cpu_list.first;
+  int contatore = 0;
+  while(currentItem){
+    FakeCPU* cpu = currentItem;
+    if(cpu->running)
+      contatore += 1;
+    currentItem = currentItem->next;
   }
 }
