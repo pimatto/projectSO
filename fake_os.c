@@ -4,6 +4,26 @@
 #include "fake_cpu.h"
 #include "fake_os.h"
 
+
+
+
+// Inizializzazione del mutex per una CPU
+void initMutex_pcb(FakePCB* pcb) {
+    pthread_mutex_init(&pcb->mutex, NULL);
+}
+
+// Acquisizione del mutex prima di eseguire un processo su una CPU
+void lockMutex_pcb(FakePCB* pcb) {
+    pthread_mutex_lock(&pcb->mutex);
+}
+
+// Rilascio del mutex dopo aver eseguito un processo su una CPU
+void unlockMutex_pcb(FakePCB* pcb) {
+    pthread_mutex_unlock(&pcb->mutex);
+}
+
+
+
 void FakeOS_init(FakeOS* os) {
   //os->running=0;
   List_init(&os->ready);
@@ -40,6 +60,9 @@ void FakeOS_createProcess(FakeOS* os, FakeProcess* p) {
   new_pcb->list.next=new_pcb->list.prev=0;
   new_pcb->pid=p->pid;
   new_pcb->events=p->events;
+  //Inizializzo il mutex
+  initMutex_pcb(new_pcb);
+
 
   assert(new_pcb->events.first && "process without events");
 
@@ -85,25 +108,20 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu){
       free(new_process);
     }
   }
+  
 
-
-
-  //Itero per ogni CPU
-  aux = os->cpu_list.first;
-  FakeCPU* cpu = (FakeCPU*) aux;
-  while(cpu){
-    
-    // scan waiting list, and put in ready all items whose event terminates
-    aux=os->waiting.first;
+  aux=os->waiting.first;
     while(aux) {
       FakePCB* pcb=(FakePCB*)aux;
       aux=aux->next;
       ProcessEvent* e=(ProcessEvent*) pcb->events.first;
+      //printf("ID CPU in uso: %d\n", cpu->num_cpu);
       printf("\twaiting pid: %d\n", pcb->pid);
       assert(e->type==IO);
       e->duration--;
       printf("\t\tremaining time:%d\n",e->duration);
       if (e->duration==0){
+        unlockMutex_pcb(pcb);
         printf("\t\tend burst\n");
         List_popFront(&pcb->events);
         free(e);
@@ -127,9 +145,24 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu){
           }
         }
       }
+      
     }
+    
+
+  //Itero per ogni CPU
+  aux = os->cpu_list.first;
+  FakeCPU* cpu = (FakeCPU*) aux;
+  while(cpu){
+    // scan waiting list, and put in ready all items whose event terminates
+    
 
     
+
+    // if running not defined and ready queue not empty
+    // put the first in ready to run
+    if (! cpu->running && os->ready.first) {
+      cpu->running=(FakePCB*) List_popFront(&os->ready);
+    }
 
     // decrement the duration of running
     // if event over, destroy event
@@ -139,14 +172,18 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu){
   
     
     FakePCB* running=cpu->running;
+    printf("ID della CPU in utilizzo: %d\n", cpu->num_cpu);
     printf("\trunning pid: %d\n", running?running->pid:-1);
     if (running) {
+      lockMutex_pcb(running);
+      if(running->events.first){
       ProcessEvent* e=(ProcessEvent*) running->events.first;
       assert(e->type==CPU);
       e->duration--;
       printf("\t\tremaining time:%d\n",e->duration);
       if (e->duration==0){
         printf("\t\tend burst\n");
+        unlockMutex_pcb(running);
         List_popFront(&running->events);
         free(e);
         if (! running->events.first) {
@@ -167,25 +204,21 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu){
         }
         cpu->running = 0;
       }
+      }
     }
-    cpu = (FakeCPU*) aux;
   
-
     // call schedule, if defined
     if (os->schedule_fn && ! cpu->running){
       (*os->schedule_fn)(os, os->schedule_args); 
     }
-
-    // if running not defined and ready queue not empty
-    // put the first in ready to run
-    if (! cpu->running && os->ready.first) {
-      cpu->running=(FakePCB*) List_popFront(&os->ready);
-    }
+    
     cpu = (FakeCPU*)(((ListItem*) cpu)->next);
   }
   ++os->timer;
 
 }
+
+
 
 void FakeOS_destroy(FakeOS* os) {
 }

@@ -191,11 +191,13 @@ int main(int argc, char** argv) {
   os.schedule_args=&srr_args;
   os.schedule_fn=schedRR;
 
-
   //Inizializzazione delle CPU
+  int aux = 1;
   for(int i = 0; i < selectedCPU; i++){
     FakeCPU* cpu = (FakeCPU*)malloc(sizeof(FakeCPU));
     FakeCPU_init(cpu);
+    cpu->num_cpu = aux;
+    aux +=1;
     initMutex(cpu); //Inizializzazione del mutex per la CPU
     List_pushBack(&os.cpu_list, (ListItem*) cpu);
   }
@@ -238,9 +240,11 @@ int running_cpu(FakeOS* os){
   ListItem* currentItem = os->cpu_list.first;
   int contatore = 0;
   while(currentItem){
-    FakeCPU* cpu = currentItem;
+    FakeCPU* cpu = (FakeCPU*) currentItem;
     if(cpu->running)
       contatore += 1;
     currentItem = currentItem->next;
   }
+  return 0;
+
 }
