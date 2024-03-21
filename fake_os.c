@@ -87,67 +87,83 @@ void FakeOS_createProcess(FakeOS* os, FakeProcess* p) {
 
 void FakeOS_simStep(FakeOS* os, int sel_cpu){
   
-  printf("************** TIME: %08d **************\n", os->timer);
+    printf("\033[0;32m=====================================\033[0m\n");
+    printf("\033[0;32m*********** TIME: %08d **********\033[0m\n", os->timer);
+    printf("\033[0;32m=====================================\033[0m\n\n");
 
   
 
   //scan process waiting to be started
   //and create all processes starting now
   ListItem* aux=os->processes.first;
-  while (aux){
-    FakeProcess* proc=(FakeProcess*)aux;
-    FakeProcess* new_process=0;
-    if (proc->arrival_time==os->timer){
-      new_process=proc;
-    }
-    aux=aux->next;
-    if (new_process) {
-      printf("\tcreate pid:%d\n", new_process->pid);
-      new_process=(FakeProcess*)List_detach(&os->processes, (ListItem*)new_process);
-      FakeOS_createProcess(os, new_process);
-      free(new_process);
-    }
-  }
-  
-
-  aux=os->waiting.first;
-    while(aux) {
-      FakePCB* pcb=(FakePCB*)aux;
+  if(aux){
+    printf("=====================================\n");
+    while (aux){
+      FakeProcess* proc=(FakeProcess*)aux;
+      FakeProcess* new_process=0;
+      if (proc->arrival_time==os->timer){
+        new_process=proc;
+      }
       aux=aux->next;
-      ProcessEvent* e=(ProcessEvent*) pcb->events.first;
-      //printf("ID CPU in uso: %d\n", cpu->num_cpu);
-      printf("\twaiting pid: %d\n", pcb->pid);
-      assert(e->type==IO);
-      e->duration--;
-      printf("\t\tremaining time:%d\n",e->duration);
-      if (e->duration==0){
-        unlockMutex_pcb(pcb);
-        printf("\t\tend burst\n");
-        List_popFront(&pcb->events);
-        free(e);
-        List_detach(&os->waiting, (ListItem*)pcb);
-        if (! pcb->events.first) {
-          // kill process
-          printf("\t\tend process\n");
-          free(pcb);
-        } else {
-          //handle next event
-          e=(ProcessEvent*) pcb->events.first;
-          switch (e->type){
-          case CPU:
-            printf("\t\tmove to ready\n");
-            List_pushBack(&os->ready, (ListItem*) pcb);
-            break;
-          case IO:
-            printf("\t\tmove to waiting\n");
-            List_pushBack(&os->waiting, (ListItem*) pcb);
-            break;
+      if (new_process) {
+        printf("\tcreate pid:%d\n", new_process->pid);
+        new_process=(FakeProcess*)List_detach(&os->processes, (ListItem*)new_process);
+        FakeOS_createProcess(os, new_process);
+        free(new_process);
+      }
+    }
+    printf("=====================================\n\n");
+  }
+  aux=os->waiting.first;
+  if(aux)
+    printf("=====================================\n");
+  while(aux) {
+    FakePCB* pcb=(FakePCB*)aux;
+    aux=aux->next;
+    ProcessEvent* e=(ProcessEvent*) pcb->events.first;
+    printf("=====================================\n");
+    printf("\twaiting pid: %d\n", pcb->pid);
+    assert(e->type==IO);
+    e->duration--;
+    printf("\t\tremaining time:%d\n",e->duration);
+    if (e->duration==0){
+      unlockMutex_pcb(pcb);
+      printf("\t\tend burst\n");
+      List_popFront(&pcb->events);
+      free(e);
+      List_detach(&os->waiting, (ListItem*)pcb);
+      if (! pcb->events.first) {
+        // kill process
+        printf("\t\tend process\n");
+        if (aux == os->waiting.last){
+          printf("=====================================\n");
+        }
+        free(pcb);
+      } else {
+        //handle next event
+        e=(ProcessEvent*) pcb->events.first;
+        switch (e->type){
+        case CPU:
+          printf("\t\tmove to ready\n");
+          if (aux == os->waiting.last){
+            printf("=====================================\n");
           }
+          List_pushBack(&os->ready, (ListItem*) pcb);
+          break;
+        case IO:
+          printf("\t\tmove to waiting\n");
+          if (aux == os->waiting.last){
+            printf("=====================================\n");
+          }
+          List_pushBack(&os->waiting, (ListItem*) pcb);
+          break;
         }
       }
-      
     }
     
+  }
+  
+  printf("-------------------------------------\n");
 
   //Itero per ogni CPU
   aux = os->cpu_list.first;
@@ -172,7 +188,20 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu){
   
     
     FakePCB* running=cpu->running;
-    printf("ID della CPU in utilizzo: %d\n", cpu->num_cpu);
+
+    
+    //printf("\033[0;30m");
+    printf("CPU in utilizzo: ");
+    for(int i = 1; i <= sel_cpu; i++){
+      if(cpu->num_cpu == i){
+        printf("\033[0;42m CPU%d \033[0;30m ", i);}
+      else{
+        printf("\033[0;47m CPU%d \033[0;30m ", i);
+      }   
+    }
+    printf("\033[0m \n");
+
+
     printf("\trunning pid: %d\n", running?running->pid:-1);
     if (running) {
       lockMutex_pcb(running);
@@ -206,7 +235,8 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu){
       }
       }
     }
-  
+    
+
     // call schedule, if defined
     if (os->schedule_fn && ! cpu->running){
       (*os->schedule_fn)(os, os->schedule_args); 
@@ -214,6 +244,7 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu){
     
     cpu = (FakeCPU*)(((ListItem*) cpu)->next);
   }
+  printf("=====================================\n\n");
   ++os->timer;
 
 }

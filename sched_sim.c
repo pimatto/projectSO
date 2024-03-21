@@ -6,6 +6,158 @@
 #include "fake_os.h"
 #include "fake_cpu.h"
 
+
+
+
+
+
+/*            SJF IN UN ALTRO FILE
+//Struttura per memorizzare gli argomenti dello scheduler SJF
+typedef struct{
+  int quantum; //Lunghezza del quanto
+  double alpha; //Fattore di previsione
+} SchedSJFArgs; 
+
+//Funzione per calcolare la previsione del prossimo burst
+double next_burst_prediction(double q_current, double q_previous, double alpha){
+    return alpha * q_current + (1 - alpha) * q_previous;
+}
+
+
+//Funzione di scheduling SJF
+void schedSJF(FakeOS* os, void* args_){
+  SchedSJFArgs* args=(SchedSJFArgs*)args_;
+
+
+  //MULTICPU
+  //Itero per ogni CPU della lista contenuta in FakeOS
+  ListItem* currentItem = os->cpu_list.first;
+  while (currentItem){
+    FakeCPU* cpu = (FakeCPU*) currentItem;
+    currentItem = currentItem->next;
+    lockMutex(cpu); //Aquisisce il mutex della CPU
+    // look for the first process in ready
+    // if none, release the mutex and return
+    if (! os->ready.first){
+      unlockMutex(cpu);
+      return;
+    }
+    
+    //Inizializza il minimo burst con una durata stimata molto grande
+    double min_predicted_burst = __DBL_MAX__;
+    FakePCB* min_pcb = NULL;
+
+
+    //Scansiono tutti i processi pronti per trovare quello con durata minore
+    ListItem* item = os->ready.first;
+    while (item){
+        FakePCB* pcb = (FakePCB*) item;
+        item = item->next;
+
+        int pid = pcb->pid; //ID del pid del processo associato al relativo pcb
+        //Cerco il processo nella lista dei processi del sistema attraverso il pid
+        FakeProcess* process = NULL;
+        ListItem* processItem = os->processes.first;
+        while(processItem){
+            FakeProcess* currentProcess = (FakeProcess*) processItem;
+            processItem = processItem->next;
+            if(currentProcess->pid == pid){
+                process = currentProcess;
+                break;
+            }
+        }
+
+        //Se il processo non esiste, ignoro il pcb in questione
+        if (!process)
+            continue;
+
+
+
+        //Calcolo la previsione del prossimo burst
+        double next_burst = next_burst_prediction(process->burst, process->predicted_burst, args->alpha);
+        process->burst += 1.0;
+        printf("\n\n process burst: %lf \n\n", process->burst);
+
+        //Aggiorno il minimo burst se trovo una durata stimata più breve
+        if(next_burst < min_predicted_burst){
+            min_predicted_burst = next_burst;
+            min_pcb = pcb;
+        }
+        
+        //Assegno il processo con la durata stimata più breve alla CPU
+        cpu->running = min_pcb; //Assegnazione del proocesso alla CPU
+
+        //Azzero il burst stimato dopo l'aumento del burst
+        process->burst = 0; // Azzera il burst del processo dopo averlo eseguito
+        process->predicted_burst = 0; // Azzera anche il burst stimato
+
+        assert(pcb->events.first); //Assicura che il processo abbia eventi
+        ProcessEvent* e = (ProcessEvent*)pcb->events.first;
+        assert(e->type==CPU);
+        // look at the first event
+        // if duration>quantum
+        // push front in the list of event a CPU event of duration quantum
+        // alter the duration of the old event subtracting quantum
+        if (e->duration>args->quantum) {
+        ProcessEvent* qe=(ProcessEvent*)malloc(sizeof(ProcessEvent));
+        qe->list.prev=qe->list.next=0;
+        qe->type=CPU;
+        qe->duration=args->quantum;
+        e->duration-=args->quantum;
+        List_pushFront(&pcb->events, (ListItem*)qe);
+        }
+
+    }
+    
+
+/*
+
+    FakePCB* pcb=(FakePCB*) List_popFront(&os->ready);
+    cpu->running=pcb; //Assegnazione del proocesso alla CPU
+
+    assert(pcb->events.first); //Assicura che il processo abbia eventi
+    ProcessEvent* e = (ProcessEvent*)pcb->events.first;
+    assert(e->type==CPU);
+
+    // look at the first event
+    // if duration>quantum
+    // push front in the list of event a CPU event of duration quantum
+    // alter the duration of the old event subtracting quantum
+    if (e->duration>args->quantum) {
+      ProcessEvent* qe=(ProcessEvent*)malloc(sizeof(ProcessEvent));
+      qe->list.prev=qe->list.next=0;
+      qe->type=CPU;
+      qe->duration=args->quantum;
+      e->duration-=args->quantum;
+      List_pushFront(&pcb->events, (ListItem*)qe);
+    }
+    unlockMutex(cpu); //Rilascia il mutex della CPU
+  }
+}
+*/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 //Le API di termios vengono utilizzate per modificare temporaneamente la modalità di input 
 //della tastiera in modo da consentire la lettura di un singolo carattere senza la necessità
 //di confermare con Invio.
@@ -184,12 +336,23 @@ int main(int argc, char** argv) {
   printf("\nHai selezionato %d CPU.\n", selectedCPU);
 
   
-
+//RR
   FakeOS_init(&os);
   SchedRRArgs srr_args;
   srr_args.quantum=5;
   os.schedule_args=&srr_args;
   os.schedule_fn=schedRR;
+
+
+/*SJF DA CAMBIARE
+  FakeOS_init(&os);
+  SchedSJFArgs ssjf_args;
+  ssjf_args.quantum=5;
+  ssjf_args.alpha = 0.5;
+  os.schedule_args=&ssjf_args;
+  os.schedule_fn=schedSJF;
+*/
+
 
   //Inizializzazione delle CPU
   int aux = 1;
@@ -246,5 +409,4 @@ int running_cpu(FakeOS* os){
     currentItem = currentItem->next;
   }
   return 0;
-
 }
