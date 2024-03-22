@@ -92,8 +92,62 @@ double nextBurstPrediction(ListHead processes, float alpha){
 
 
 //Funzione di scheduling SJF
-void schedSJF(FakeOS* os, void* args_){
+void schedSJFPREEMPTIVE(FakeOS* os, void* args_){
   SchedSJFArgs* args=(SchedSJFArgs*)args_;
+  // look for the first process in ready
+  // if none, return
+  if (! os->ready.first)
+    return;
+
+  //Calcolo il tempo di burst predetto con metodo exponential averaging
+  nextBurstPrediction(os->processes, 0.5); //Alpha impostato a 0.5
+  //Ciclo per l'esecuzione del SJF
+  while(1){
+    FakeProcess* shortestProcess = NULL; //Processo più breve
+    float shortestBurstTime = 9999; //Variabile contenente il tempo di burst più breve
+    //Ricerco il processo che ha il burst predetto più breve
+    ListItem* currentItem = os->processes.first;
+    FakeProcess* currentProcess = (FakeProcess*) currentItem;
+    while(currentProcess){
+      //Verifico se il processo è arrivato, se il burst predetto è minore del burst più breve
+      //finora, e se il processo non è stato completato
+      if(currentProcess->arrival_time <= os->timer && currentProcess->burst < shortestBurstTime){
+        shortestProcess = currentProcess; //Memorizza il processo con burst più breve
+        shortestBurstTime = currentProcess->burst; //Memorizza il burst più breve
+      }
+      currentItem = currentItem->next;
+      FakeProcess* currentProcess = (FakeProcess*) currentItem;
+    } 
+    //Eseguo il processo con job più breve
+    FakePCB* pcb=(FakePCB*) currentProcess;
+    os->running=pcb;
+    
+        
+    assert(pcb->events.first); //Assicura che il processo abbia eventi
+    ProcessEvent* e = (ProcessEvent*)pcb->events.first;
+    assert(e->type==CPU);
+    // look at the first event
+    // if duration>quantum
+    // push front in the list of event a CPU event of duration quantum
+    // alter the duration of the old event subtracting quantum
+    if (e->duration>args->quantum) {
+    ProcessEvent* qe=(ProcessEvent*)malloc(sizeof(ProcessEvent));
+    qe->list.prev=qe->list.next=0;
+    qe->type=CPU;
+    qe->duration=args->quantum;
+    e->duration-=args->quantum;
+    List_pushFront(&pcb->events, (ListItem*)qe);
+    }
+  }
+  
+
+
+
+
+
+
+
+  /*
   //MULTICPU
   //Itero per ogni CPU della lista contenuta in FakeOS
   ListItem* currentItem = os->cpu_list.first;
@@ -194,7 +248,7 @@ void schedSJF(FakeOS* os, void* args_){
       qe->duration=args->quantum;
       e->duration-=args->quantum;
       List_pushFront(&pcb->events, (ListItem*)qe);
-    }*/
+    }
     unlockMutex(cpu); //Rilascia il mutex della CPU
-  }
+  }*/
 }

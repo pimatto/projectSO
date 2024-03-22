@@ -15,7 +15,7 @@ struct FakeOS;
 typedef void (*ScheduleFn)(struct FakeOS* os, void* args);
 
 typedef struct FakeOS{
-  //FakePCB* running;
+  FakePCB* running; //Da togliere con l'utilizzo delle CPU
   ListHead ready;
   ListHead waiting;
   int timer;
