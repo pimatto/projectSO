@@ -9,6 +9,7 @@ typedef struct {
   int pid;
   ListHead events;
   pthread_mutex_t mutex; // Mutex per il processo
+  int readyTime; //Variabile per non eseguire il processo appena messo in ready
 } FakePCB;
 
 struct FakeOS;
@@ -36,3 +37,4 @@ void FakeOS_destroy(FakeOS* os);
 void initMutex_process(FakeProcess* process);
 void lockMutex_process(FakeProcess* process);
 void unlockMutex_process(FakeProcess* process);
+FakeProcess* searchProcessByPid(ListHead* processes, FakePCB* pcb);

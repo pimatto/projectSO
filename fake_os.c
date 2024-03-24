@@ -22,7 +22,18 @@ void unlockMutex_pcb(FakePCB* pcb) {
     pthread_mutex_unlock(&pcb->mutex);
 }
 
-
+FakeProcess* searchProcessByPid(ListHead* processes, FakePCB* pcb){
+  if(processes->first && pcb){
+    ListItem* currentItem = processes->first;
+    while(currentItem){
+      FakeProcess* currentProcess = (FakeProcess*) currentItem;
+      currentItem = currentItem->next;
+      if(currentProcess->pid == pcb->pid)
+        return currentProcess;
+    }
+  }
+  return NULL;
+}
 
 void FakeOS_init(FakeOS* os) {
   //os->running=0;
@@ -145,9 +156,11 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu){
         switch (e->type){
         case CPU:
           printf("\t\tmove to ready\n");
+          printf("\t\tpredicted burst: %f\n", ((FakeProcess*)pcb)->predicted_burst);
           if (aux == os->waiting.last){
             printf("=====================================\n");
           }
+          pcb->readyTime = os->timer;
           List_pushBack(&os->ready, (ListItem*) pcb);
           break;
         case IO:
@@ -176,8 +189,13 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu){
 
     // if running not defined and ready queue not empty
     // put the first in ready to run
-    if (! cpu->running && os->ready.first) {
-      cpu->running=(FakePCB*) List_popFront(&os->ready);
+    if(os->ready.first){
+      FakePCB* readyPcb = (FakePCB*) os->ready.first;
+      if(!cpu->running && readyPcb->readyTime != os->timer)
+        cpu->running=(FakePCB*) List_popFront(&os->ready);
+      if(os->timer == 0){
+        cpu->running=(FakePCB*) List_popFront(&os->ready);
+      }
     }
 
     // decrement the duration of running
@@ -209,6 +227,11 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu){
       ProcessEvent* e=(ProcessEvent*) running->events.first;
       assert(e->type==CPU);
       e->duration--;
+
+      //Aumento il tempo di burst ad ogni CPU BURST
+      FakeProcess* runningProcess = (FakeProcess*) running;
+      runningProcess->burst++;
+
       printf("\t\tremaining time:%d\n",e->duration);
       if (e->duration==0){
         printf("\t\tend burst\n");
@@ -223,20 +246,22 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu){
           switch (e->type){
           case CPU:
             printf("\t\tmove to ready\n");
+            printf("\t\tpredicted burst: %f\n", ((FakeProcess*)running)->predicted_burst);
             List_pushBack(&os->ready, (ListItem*) running);
             break;
           case IO:
-            printf("\t\tmove to waiting\n");
+            printf("\t\tmove to waiting\n\t\tburst time del processo: %f\n", ((FakeProcess*)running)->burst);
             List_pushBack(&os->waiting, (ListItem*) running);
             break;
           }
         }
         cpu->running = 0;
+        
       }
       }
-    }
     
-
+    
+    }
     // call schedule, if defined
     if (os->schedule_fn && ! cpu->running){
       (*os->schedule_fn)(os, os->schedule_args); 
@@ -246,7 +271,7 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu){
   }
   printf("=====================================\n\n");
   ++os->timer;
-
+  
 }
 
 
