@@ -14,6 +14,7 @@
 
 
 
+
 //Struttura per memorizzare gli argomenti dello scheduler SJF
 typedef struct{
   int quantum; //Lunghezza del quanto
@@ -21,7 +22,19 @@ typedef struct{
 } SchedSJFArgs; 
 
 
-//Funzione per ordinare i processi in base al tempo di burst
+int running_cpu(FakeOS* os){
+  ListItem* currentItem = os->cpu_list.first;
+  while(currentItem){
+    FakeCPU* cpu = (FakeCPU*) currentItem;
+    if(cpu->running)
+      return 1;
+    currentItem = currentItem->next;
+  }
+  return 0;
+}
+
+
+/*Funzione per ordinare i processi in base al tempo di burst
 void sortProcessesByBurstTime(FakeOS* os) {
   //Conto il numero di processi all'interno della lista dei processi pronti presa in argomento dalla 
   //funzione
@@ -29,14 +42,14 @@ void sortProcessesByBurstTime(FakeOS* os) {
   ListItem* processItem = os->ready.first;
   while(processItem){
     count++;
-    FakeProcess* currentProcess = (FakeProcess*) processItem;
     processItem = processItem->next;
   }
   //Inizializzo l'array contenente i processi
   FakeProcess* arrayProcess[count];
-  if(arrayProcess == NULL)
+  if(arrayProcess == NULL){
     printf("Errore allocazione memoria.");
     return;
+  }
   //Riempio l'array dei processi con i processi della lista ready
   processItem = os->ready.first;
   for (int i = 0; i < count; i++){
@@ -70,7 +83,7 @@ void sortProcessesByBurstTime(FakeOS* os) {
   }
   //Libero la memoria allocata per l'array
   free(arrayProcess);
-}
+}*/
 
 
 
@@ -87,18 +100,15 @@ void nextBurstPrediction(ListHead processes, float alpha){
     FakeProcess* currentProcess = (FakeProcess*) processItem;*/
     //Inizializzo il predicted burst per il primo processo della lista
     ListItem* currentItem = processes.first;
-    FakeProcess* currentProcess = (FakeProcess*) currentItem;
     //Itero la lista dei processi per calcolare il predicted burst per ogni processo
     while (currentItem->next){
-      printf("Processi iterati per il burst prediction:");
-      printf("\t%d\t", currentProcess->pid);
+      FakeProcess* currentProcess = (FakeProcess*) currentItem;
       //Calcolo il predicted burst del prossimo processo della lista attraverso il metodo
       //exponential averaging
-      FakeProcess* nextProcess = (FakeProcess*) currentProcess;
+      FakeProcess* nextProcess = (FakeProcess*) currentItem->next;
       nextProcess->predicted_burst = alpha*currentProcess->burst + (1-alpha)*currentProcess->predicted_burst;
-      printf("\n\nPredicted burst del processo %d: %f = %f X %f +  (1 - %f) X %f\n\n", nextProcess->pid, nextProcess->predicted_burst, alpha, currentProcess->burst, alpha, currentProcess->predicted_burst);
+      printf("\n\nPredicted burst del processo %d: %f = %f X %f [pid = %d] +  (1 - %f) X %f [pid = %d]\n\n", nextProcess->pid, nextProcess->predicted_burst, alpha, currentProcess->burst, currentProcess->pid, alpha, currentProcess->predicted_burst, currentProcess->pid);
       currentItem = currentItem->next;
-      FakeProcess* currentProcess = (FakeProcess*) currentItem;
     }
   }
 }
@@ -118,10 +128,12 @@ void schedSJFPREEMPTIVE(FakeOS* os, void* args_){
   
     // look for the first process in ready
     // if none, return
-    if (! os->ready.first)
+    if (! os->ready.first){
+      unlockMutex(cpu);
       return;
+    }
     //Calcolo il tempo di burst predetto con metodo exponential averaging
-    nextBurstPrediction(os->ready, 0.5); //Alpha impostato a 0.5
+    //nextBurstPrediction(os->ready, 0.5); //Alpha impostato a 0.5
     //Ciclo per l'esecuzione del SJF
     FakeProcess* shortestProcess = NULL; //Processo più breve
     float shortestBurstTime = 9999; //Variabile contenente il tempo di burst più breve
@@ -137,12 +149,16 @@ void schedSJFPREEMPTIVE(FakeOS* os, void* args_){
         shortestBurstTime = currentProcess->predicted_burst; //Memorizza il burst più breve
         printf("\n\n\nSHORTEST JOB: %d      PREDICTED BURST TIME: %f\n\n\n", shortestProcess->pid, shortestBurstTime);
       }
-      currentProcess->burst = 0;
+      //if(((ProcessEvent*)((FakePCB*)currentProcess))->duration >= args->quantum)
+      //  currentProcess->burst = 0;
     }
     //Eseguo il processo con job più breve
-    FakePCB* pcb=(FakePCB*) shortestProcess;
-    os->running=pcb;
-        
+    //List_detach(&os->ready, os->ready.first);
+    FakePCB* pcb=(FakePCB*) List_detach(&os->ready, (ListItem*)shortestProcess);
+    cpu->running=pcb;
+    printf("Processo più breve scelto: %d\tPredicted burst time del processo: %f\n\n", cpu->running->pid, ((FakeProcess*)cpu->running)->predicted_burst);
+    
+
     assert(pcb->events.first); //Assicura che il processo abbia eventi
     ProcessEvent* e = (ProcessEvent*)pcb->events.first;
     assert(e->type==CPU);
@@ -407,6 +423,9 @@ int main(int argc, char** argv) {
     }
   }
   printf("num processes in queue %d\n", os.processes.size);
+
+  
+  
   while(running_cpu(&os)
         || os.ready.first
         || os.waiting.first
@@ -426,15 +445,3 @@ int main(int argc, char** argv) {
 
 
 
-
-int running_cpu(FakeOS* os){
-  ListItem* currentItem = os->cpu_list.first;
-  int contatore = 0;
-  while(currentItem){
-    FakeCPU* cpu = (FakeCPU*) currentItem;
-    if(cpu->running)
-      contatore += 1;
-    currentItem = currentItem->next;
-  }
-  return 0;
-}

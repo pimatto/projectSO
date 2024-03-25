@@ -26,6 +26,8 @@ typedef struct FakeOS{
   ListHead processes;
 
   ListHead cpu_list; // Lista di CPU
+
+  //ListHead all_processes//Lista di tutti i processi per il predicted
 } FakeOS;
 
 void FakeOS_init(FakeOS* os);
