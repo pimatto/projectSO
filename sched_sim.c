@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <unistd.h>
 #include <termios.h>
+#include <math.h>
 #include "fake_os.h"
 #include "fake_cpu.h"
 
@@ -109,19 +110,18 @@ void sortProcessesByBurstTime(ListHead* processes, int count) {
 //Funzione di scheduling SJF
 void schedSJFPREEMPTIVE(FakeOS* os, void* args_){
   SchedSJFArgs* args=(SchedSJFArgs*)args_;
-  
   sortProcessesByBurstTime(&os->ready, os->ready.size);
-  printf("\n\nRIORDINO I PROCESSI\n\n");
-  printf("Processi nella coda di ready: ");
-  ListItem* currentProc = os->ready.first;
-  while (currentProc){
-    printf("[PID = %d]\t", ((FakeProcess*)currentProc)->pid);
-    currentProc = currentProc->next;
-  }
-  printf("\n\n");
-
+    //printf("\n\nRIORDINO I PROCESSI\t\t");
+    //printf("Processi nella coda di ready: ");
+    ListItem* currentProc = os->ready.first;
+    while (currentProc){
+      //printf("[PID = %d]\t", ((FakeProcess*)currentProc)->pid);
+      currentProc = currentProc->next;
+    }
+    //printf("\n\n");
   
-
+  
+  //printf("\nSONO IN SCHED SIM\n");
   //MULTICPU
   //Itero per ogni CPU della lista contenuta in FakeOS
   ListItem* currentItem = os->cpu_list.first;
@@ -136,15 +136,32 @@ void schedSJFPREEMPTIVE(FakeOS* os, void* args_){
       unlockMutex(cpu);
       return;
     }
-
+    
 
     // Look at the first process in ready
     FakePCB* pcb = (FakePCB*)os->ready.first;
 
+    
+
     // Avoid executing a process in the same epoch it's inserted into the ready queue
     if (pcb->readyTime == os->timer && pcb->readyTime != ((FakeProcess*)pcb)->arrival_time) {
-        unlockMutex(cpu);
-        continue;
+      assert(pcb->events.first); //Assicura che il processo abbia eventi
+      ProcessEvent* e = (ProcessEvent*)pcb->events.first;
+      assert(e->type==CPU);
+
+      args->quantum = (int) floor(((FakeProcess*)pcb)->predicted_burst);
+      printf("\nQUANTO: %d\n", args->quantum);
+
+      if (e->duration>args->quantum) {
+        ProcessEvent* qe=(ProcessEvent*)malloc(sizeof(ProcessEvent));
+        qe->list.prev=qe->list.next=0;
+        qe->type=CPU;
+        qe->duration=args->quantum;
+        e->duration-=args->quantum;
+        List_pushFront(&pcb->events, (ListItem*)qe);
+      }
+      unlockMutex(cpu);
+      continue;
     }
 
     //printf("numero CPU: %d\n\n", cpu->num_cpu);
@@ -153,7 +170,7 @@ void schedSJFPREEMPTIVE(FakeOS* os, void* args_){
     cpu->running = pcb;
       
     
-    printf("\n\nPROCESSO SCELTO IN SCHED_SIM: %d\n\n", pcb->pid);
+    //printf("\n\nPROCESSO SCELTO IN SCHED_SIM: %d\n\n", pcb->pid);
     
     
     assert(pcb->events.first); //Assicura che il processo abbia eventi
@@ -163,20 +180,19 @@ void schedSJFPREEMPTIVE(FakeOS* os, void* args_){
     // if duration>quantum
     // push front in the list of event a CPU event of duration quantum
     // alter the duration of the old event subtracting quantum
+    args->quantum = (int) floor(((FakeProcess*)pcb)->predicted_burst);
+    //printf("\nQUANTO: %d\n", args->quantum);
     if (e->duration>args->quantum) {
-    ProcessEvent* qe=(ProcessEvent*)malloc(sizeof(ProcessEvent));
-    qe->list.prev=qe->list.next=0;
-    qe->type=CPU;
-    qe->duration=args->quantum;
-    e->duration-=args->quantum;
-    List_pushFront(&pcb->events, (ListItem*)qe);
+      ProcessEvent* qe=(ProcessEvent*)malloc(sizeof(ProcessEvent));
+      qe->list.prev=qe->list.next=0;
+      qe->type=CPU;
+      qe->duration=args->quantum;
+      e->duration-=args->quantum;
+      List_pushFront(&pcb->events, (ListItem*)qe);
     }
     
-  unlockMutex(cpu); //Rilascia il mutex della CPU
+    unlockMutex(cpu); //Rilascia il mutex della CPU
   }
-
-
-
 
 
 }
@@ -389,7 +405,7 @@ int main(int argc, char** argv) {
 //SJF DA CAMBIARE
   FakeOS_init(&os);
   SchedSJFArgs ssjf_args;
-  ssjf_args.quantum=5;
+  ssjf_args.quantum=7;
   ssjf_args.alpha = 0.5;
   os.schedule_args=&ssjf_args;
   os.schedule_fn=schedSJFPREEMPTIVE;

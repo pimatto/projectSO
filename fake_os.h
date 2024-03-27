@@ -27,7 +27,6 @@ typedef struct FakeOS{
 
   ListHead cpu_list; // Lista di CPU
 
-  //ListHead all_processes//Lista di tutti i processi per il predicted
 } FakeOS;
 
 void FakeOS_init(FakeOS* os);
@@ -39,4 +38,3 @@ void FakeOS_destroy(FakeOS* os);
 void initMutex_process(FakeProcess* process);
 void lockMutex_process(FakeProcess* process);
 void unlockMutex_process(FakeProcess* process);
-FakeProcess* searchProcessByPid(ListHead* processes, FakePCB* pcb);
