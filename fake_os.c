@@ -22,19 +22,6 @@ void unlockMutex_pcb(FakePCB* pcb) {
     pthread_mutex_unlock(&pcb->mutex);
 }
 
-FakeProcess* searchProcessByPid(ListHead* processes, FakePCB* pcb){
-  if(processes->first && pcb){
-    ListItem* currentItem = processes->first;
-    while(currentItem){
-      FakeProcess* currentProcess = (FakeProcess*) currentItem;
-      currentItem = currentItem->next;
-      if(currentProcess->pid == pcb->pid)
-        return currentProcess;
-    }
-  }
-  return NULL;
-}
-
 void FakeOS_init(FakeOS* os) {
   //os->running=0;
   List_init(&os->ready);
@@ -127,6 +114,8 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu){
     }
     printf("=====================================\n\n");
   }
+
+  // scan waiting list, and put in ready all items whose event terminates
   aux=os->waiting.first;
   if(aux)
     printf("=====================================\n");
@@ -186,23 +175,20 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu){
 
   //Itero per ogni CPU
   aux = os->cpu_list.first;
-  FakeCPU* cpu = (FakeCPU*) aux;
-  while(cpu){
-    // scan waiting list, and put in ready all items whose event terminates
+  while(aux){
+    FakeCPU* cpu = (FakeCPU*) aux;
+    aux = aux->next;
     
-
     
-
-    // if running not defined and ready queue not empty
-    // put the first in ready to run
-    if(os->ready.first){
-      FakePCB* readyPcb = (FakePCB*) os->ready.first;
-      if(!cpu->running && readyPcb->readyTime != os->timer)
-        cpu->running=(FakePCB*) List_popFront(&os->ready);
-      if(os->timer == 0){
-        cpu->running=(FakePCB*) List_popFront(&os->ready);
-      }
+    
+    
+  
+    // call schedule, if defined
+    if (os->schedule_fn && ! cpu->running){
+      (*os->schedule_fn)(os, os->schedule_args); 
     }
+
+    
 
     // decrement the duration of running
     // if event over, destroy event
@@ -212,7 +198,9 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu){
   
     
     FakePCB* running=cpu->running;
-
+    
+    if(running)
+      printf("\n\nPROCESSO SCELTO IN FAKE_OS: %d\n\n", cpu->running->pid);
     
     //printf("\033[0;30m");
     printf("CPU in utilizzo: ");
@@ -225,62 +213,62 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu){
     }
     printf("\033[0m \n");
 
-
     printf("\trunning pid: %d\n", running?running->pid:-1);
     if (running) {
       lockMutex_pcb(running);
+      
       if(running->events.first){
-      ProcessEvent* e=(ProcessEvent*) running->events.first;
-      assert(e->type==CPU);
-      e->duration--;
-      //Predicted burst del processo in esecuzione
-      printf("\t\tpredicted burst: %f\n", ((FakeProcess*)running)->predicted_burst);
-      //Aumento il tempo di burst ad ogni CPU BURST
-      FakeProcess* runningProcess = (FakeProcess*) running;
-      runningProcess->burst++;
-
-      printf("\t\tremaining time:%d\n",e->duration);
-      if (e->duration==0){
-        printf("\t\tend burst\n");
-        unlockMutex_pcb(running);
-        List_popFront(&running->events);
-        free(e);
-        if (! running->events.first) {
-          printf("\t\tend process\n");
-          free(running); // kill process
-        } else {
-          e=(ProcessEvent*) running->events.first;
-          switch (e->type){
-          case CPU:
-            printf("\t\tmove to ready\n\t\tburst time del processo: %f\n", ((FakeProcess*)running)->burst);
-            printf("\t\tpredicted burst: %f\n", ((FakeProcess*)running)->predicted_burst);
-            printf("\n\nPredicted burst del processo %d: %f X %f [pid = %d] +  (1 - %f) X %f [pid = %d]\n\n", ((FakeProcess*)running)->pid, 0.5, ((FakeProcess*)running)->burst, ((FakeProcess*)running)->pid, 0.5, ((FakeProcess*)running)->predicted_burst, ((FakeProcess*)running)->pid);
-            ((FakeProcess*)running)->predicted_burst = 0.5 * ((FakeProcess*)running)->predicted_burst + (1 - 0.5) * ((FakeProcess*)running)->burst;
-            //((FakeProcess*)running)->burst = 0;
-            List_pushBack(&os->ready, (ListItem*) running);
-            break;
-          case IO:
-            printf("\t\tmove to waiting\n\t\tburst time del processo: %f\n", ((FakeProcess*)running)->burst);
-            printf("\n\nPredicted burst del processo %d: %f X %f [pid = %d] +  (1 - %f) X %f [pid = %d]\n\n", ((FakeProcess*)running)->pid, 0.5, ((FakeProcess*)running)->burst, ((FakeProcess*)running)->pid, 0.5, ((FakeProcess*)running)->predicted_burst, ((FakeProcess*)running)->pid);
-            ((FakeProcess*)running)->predicted_burst = 0.5 * ((FakeProcess*)running)->predicted_burst + (1 - 0.5) * ((FakeProcess*)running)->burst;
-            ((FakeProcess*)running)->burst = 0;
-            List_pushBack(&os->waiting, (ListItem*) running);
-            break;
+        ProcessEvent* e=(ProcessEvent*) running->events.first;
+        assert(e->type==CPU);
+        e->duration--;
+        //Predicted burst del processo in esecuzione
+        printf("\t\tpredicted burst: %f\n", ((FakeProcess*)running)->predicted_burst);
+        //Aumento il tempo di burst ad ogni CPU BURST
+        FakeProcess* runningProcess = (FakeProcess*) running;
+        runningProcess->burst++;
+        printf("\t\tremaining time:%d\n",e->duration);
+        if (e->duration==0){
+          printf("\t\tend burst\n");
+          unlockMutex_pcb(running);
+          List_popFront(&running->events);
+          free(e);
+          if (! running->events.first) {
+            printf("\t\tend process\n");
+            free(running); // kill process
+          } else {
+            e=(ProcessEvent*) running->events.first;
+            switch (e->type){
+            case CPU:
+              printf("\t\tmove to ready\n\t\tburst time del processo: %f\n", ((FakeProcess*)running)->burst);
+              printf("\t\tpredicted burst: %f\n", ((FakeProcess*)running)->predicted_burst);
+              printf("\n\nPredicted burst del processo %d: %f X %f [pid = %d] +  (1 - %f) X %f [pid = %d]\n\n", ((FakeProcess*)running)->pid, 0.5, ((FakeProcess*)running)->burst, ((FakeProcess*)running)->pid, 0.5, ((FakeProcess*)running)->predicted_burst, ((FakeProcess*)running)->pid);
+              ((FakeProcess*)running)->predicted_burst = 0.5 * ((FakeProcess*)running)->predicted_burst + (1 - 0.5) * ((FakeProcess*)running)->burst;
+              //((FakeProcess*)running)->burst = 0;
+              List_pushBack(&os->ready, (ListItem*) running);
+              break;
+            case IO:
+              printf("\t\tmove to waiting\n\t\tburst time del processo: %f\n", ((FakeProcess*)running)->burst);
+              printf("\n\nPredicted burst del processo %d: %f X %f [pid = %d] +  (1 - %f) X %f [pid = %d]\n\n", ((FakeProcess*)running)->pid, 0.5, ((FakeProcess*)running)->burst, ((FakeProcess*)running)->pid, 0.5, ((FakeProcess*)running)->predicted_burst, ((FakeProcess*)running)->pid);
+              ((FakeProcess*)running)->predicted_burst = 0.5 * ((FakeProcess*)running)->predicted_burst + (1 - 0.5) * ((FakeProcess*)running)->burst;
+              ((FakeProcess*)running)->burst = 0;
+              List_pushBack(&os->waiting, (ListItem*) running);
+              break;
+            }
           }
+          cpu->running = 0;
+          
         }
-        cpu->running = 0;
-        
-      }
       }
     
     
     }
-    // call schedule, if defined
-    if (os->schedule_fn && ! cpu->running){
-      (*os->schedule_fn)(os, os->schedule_args); 
+    
+    // if running not defined and ready queue not empty
+    // put the first in ready to run
+    if (! cpu->running && os->ready.first) {
+      cpu->running=(FakePCB*) List_popFront(&os->ready);
     }
     
-    cpu = (FakeCPU*)(((ListItem*) cpu)->next);
   }
   printf("=====================================\n\n");
   ++os->timer;

@@ -10,13 +10,13 @@ typedef struct {
   ListHead events;
   pthread_mutex_t mutex; // Mutex per il processo
   int readyTime; //Variabile per non eseguire il processo appena messo in ready
+  int completed; //Flag di completamento
 } FakePCB;
 
 struct FakeOS;
 typedef void (*ScheduleFn)(struct FakeOS* os, void* args);
 
 typedef struct FakeOS{
-  FakePCB* running; //Da togliere con l'utilizzo delle CPU
   ListHead ready;
   ListHead waiting;
   int timer;
