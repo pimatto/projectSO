@@ -87,14 +87,12 @@ void FakeOS_createProcess(FakeOS* os, FakeProcess* p) {
 
 void FakeOS_simStep(FakeOS* os, int sel_cpu){
   
-    printf("\033[0;32m=====================================\033[0m\n");
-    printf("\033[0;32m*********** TIME: %08d **********\033[0m\n", os->timer);
-    printf("\033[0;32m=====================================\033[0m\n\n");
-
+  //Stampo il tempo attuale
+  printf("\033[0;32m=====================================\033[0m\n");
+  printf("\033[0;32m*********** TIME: %08d **********\033[0m\n", os->timer);
+  printf("\033[0;32m=====================================\033[0m\n\n");
   
-
-  //scan process waiting to be started
-  //and create all processes starting now
+  //Scansione dei processi nella lista di waiting e creo tutti i processi partiti ora
   ListItem* aux=os->processes.first;
   if(aux){
     printf("=====================================\n");
@@ -115,7 +113,8 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu){
     printf("=====================================\n\n");
   }
 
-  // scan waiting list, and put in ready all items whose event terminates
+  //Scansione della lista di waiting e sposto nella lista di ready
+  //tutti gli elementi i quali eventi (IO) sono terminati
   aux=os->waiting.first;
   if(aux)
     printf("=====================================\n");
@@ -134,44 +133,46 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu){
       List_popFront(&pcb->events);
       free(e);
       List_detach(&os->waiting, (ListItem*)pcb);
-      if (! pcb->events.first) {
-        // kill process
+      if (!pcb->events.first) {
+        //Termina il processo se non ci sono più eventi
         printf("\t\tend process\n");
         if (aux == os->waiting.last){
           printf("=====================================\n");
         }
         free(pcb);
       } else {
-        //handle next event
+        //Gestisce il prossimo evento
         e=(ProcessEvent*) pcb->events.first;
         switch (e->type){
-        case CPU:
-          printf("\t\tmove to ready\n");
-          if(((FakeProcess*)pcb)->arrival_time == os->timer){
-            printf("\n\nPredicted burst del processo %d: %f X %f [pid = %d] +  (1 - %f) X %f [pid = %d]\n\n", ((FakeProcess*)pcb)->pid, 0.5, ((FakeProcess*)pcb)->burst, ((FakeProcess*)pcb)->pid, 0.5, ((FakeProcess*)pcb)->predicted_burst, ((FakeProcess*)pcb)->pid);
-            ((FakeProcess*)pcb)->predicted_burst = 0.5 * ((FakeProcess*)pcb)->predicted_burst + (1 - 0.5) * ((FakeProcess*)pcb)->burst;
-          }
-          printf("\t\tpredicted burst: %f\n", ((FakeProcess*)pcb)->predicted_burst);
-          if (aux == os->waiting.last){
-            printf("=====================================\n");
-          }
-          pcb->readyTime = os->timer;
-          List_pushBack(&os->ready, (ListItem*) pcb);
-          break;
-        case IO:
-          printf("\t\tmove to waiting\n");
-          if (aux == os->waiting.last){
-            printf("=====================================\n");
-          }
-          List_pushBack(&os->waiting, (ListItem*) pcb);
-          break;
+          case CPU:
+            printf("\t\tmove to ready\n");
+            //Aggiorno il predicted burst del processo al primo ingresso in CPU
+            if(((FakeProcess*)pcb)->arrival_time == os->timer){
+              printf("\n\nPredicted burst del processo %d: %f X %f [pid = %d] +  (1 - %f) X %f [pid = %d]\n\n", ((FakeProcess*)pcb)->pid, 0.5, ((FakeProcess*)pcb)->burst, ((FakeProcess*)pcb)->pid, 0.5, ((FakeProcess*)pcb)->predicted_burst, ((FakeProcess*)pcb)->pid);
+              ((FakeProcess*)pcb)->predicted_burst = 0.5 * ((FakeProcess*)pcb)->predicted_burst + (1 - 0.5) * ((FakeProcess*)pcb)->burst;
+            }
+            printf("\t\tpredicted burst: %f\n", ((FakeProcess*)pcb)->predicted_burst);
+            if (aux == os->waiting.last){
+              printf("=====================================\n");
+            }
+            pcb->readyTime = os->timer;
+            List_pushBack(&os->ready, (ListItem*) pcb);
+            break;
+          case IO:
+            printf("\t\tmove to waiting\n");
+            if (aux == os->waiting.last){
+              printf("=====================================\n");
+            }
+            List_pushBack(&os->waiting, (ListItem*) pcb);
+            break;
         }
       }
-    }
-    
+    } 
   }
   
   printf("-------------------------------------\n");
+
+  
 
   //Itero per ogni CPU
   aux = os->cpu_list.first;
@@ -179,29 +180,14 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu){
     FakeCPU* cpu = (FakeCPU*) aux;
     aux = aux->next;
 
+    //Se il processo in esecuzione sulla CPU ha pid == 0 viene settato a NULL
     if(cpu->running){
       if(cpu->running->pid == 0)
         cpu->running = NULL;
     }
     
-    // call schedule, if defined
-    if (os->schedule_fn && ! cpu->running){
-      (*os->schedule_fn)(os, os->schedule_args); 
-    }
     
-    // decrement the duration of running
-    // if event over, destroy event
-    // and reschedule process
-    // if last event, destroy running
-    //if(cpu->running)
-    //  printf("\n\nPROCESSO IN FAKE_OS: %d\n\n", cpu->running->pid);
-  
-    FakePCB* running=cpu->running;
-    
-    
-    //if(running)
-    //  printf("\n\nPROCESSO SCELTO IN FAKE_OS: %d\n\n", cpu->running->pid);
-    
+
     //printf("\033[0;30m");
     printf("CPU in utilizzo: ");
     for(int i = 1; i <= sel_cpu; i++){
@@ -212,13 +198,22 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu){
       }   
     }
     printf("\033[0m \n");
-    
-    
 
+    //Chiama la funzione di scheduling se definita
+    if (os->schedule_fn){
+      printf("\n\navvio la funzione di scheduling...\n\n");
+      (*os->schedule_fn)(os, os->schedule_args); 
+    }
+
+
+    //Decremento la durata del processo in running e se è finito lo distruggo
+    //I processi sono rischedulati e se è l'ultimo evento, il processo in running viene distrutto
+    FakePCB* running=cpu->running;
+    if(cpu->running)
+      printf("\n\nENTRO IO: %d\n\n", cpu->running->pid);
     printf("\trunning pid: %d\n", running?running->pid:-1);
     if (running) {
       lockMutex_pcb(running);
-      
       if(running->events.first){
         ProcessEvent* e=(ProcessEvent*) running->events.first;
         assert(e->type==CPU);
@@ -234,10 +229,15 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu){
           unlockMutex_pcb(running);
           List_popFront(&running->events);
           free(e);
+
+          //Se non ci sono più eventi, il processo è terminato
           if (! running->events.first) {
             printf("\t\tend process\n");
             free(running); // kill process
-          } else {
+          } 
+
+          //Altrimenti gestisce il prossimo evento
+          else {
             e=(ProcessEvent*) running->events.first;
             switch (e->type){
             case CPU:
@@ -261,24 +261,22 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu){
           
         }
       }
-    
-    
     }
-    // call schedule, if defined
-    if (os->schedule_fn && ! cpu->running){
-      (*os->schedule_fn)(os, os->schedule_args); 
+
+    //Chiamo la funzione di scheduling, se definita
+    if (os->schedule_fn && !cpu->running && os->ready.first && ((FakeProcess*)os->ready.first)->predicted_burst < ((ProcessEvent*)((FakePCB*)os->ready.first)->events.first)->duration){
+      (*os->schedule_fn)(os, os->schedule_args);
     }
-    // if running not defined and ready queue not empty
-    // put the first in ready to run
+
+    //Se non c'è un processo in esecuzione sulla CPU e la lista dei processi in ready non è vuota
+    //metto il primo processo della lista ready in esecuzione sulla CPU
     if (! cpu->running && os->ready.first && ((FakePCB*)os->ready.first)->readyTime != os->timer){
       cpu->running=(FakePCB*) List_popFront(&os->ready);
     }
     
-    
   }
   printf("=====================================\n\n");
   ++os->timer;
- 
 }
 
 

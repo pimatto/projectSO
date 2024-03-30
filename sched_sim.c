@@ -25,7 +25,6 @@ typedef struct{
 
 int running_cpu(FakeOS* os){
   ListItem* currentItem = os->cpu_list.first;
-  int contatore = 0;
   while(currentItem){
     FakeCPU* cpu = (FakeCPU*) currentItem;
     if(cpu->running)
@@ -36,72 +35,28 @@ int running_cpu(FakeOS* os){
 }
 
 
-//Scambia i processi da ordinare
-void swapProcess(ListHead*list, ListItem* a, ListItem* b){
-  printf("Scambio dei processi %d [%f] ->-->---> %d [%f]\n", ((FakeProcess*)a)->pid, ((FakeProcess*)a)->predicted_burst, ((FakeProcess*)b)->pid, ((FakeProcess*)b)->predicted_burst);
-  if (a == b) // Se i due nodi sono gli stessi, non c'è bisogno di fare alcuna operazione
-        return;
-
-    // Trova il nodo precedente a 'a'
-    ListItem* prev_a = NULL;
-    ListItem* current = list->first;
-    while (current && current != a) {
-        prev_a = current;
-        current = current->next;
-    }
-
-    // Trova il nodo precedente a 'b'
-    ListItem* prev_b = NULL;
-    current = list->first;
-    while (current && current != b) {
-        prev_b = current;
-        current = current->next;
-    }
-
-    // Se uno dei nodi non è presente nella lista, esci dalla funzione
-    if (!prev_a || !prev_b)
-        return;
-
-    // Se 'a' non è il primo nodo della lista, aggiorna il puntatore al nodo precedente
-    if (prev_a != NULL)
-        prev_a->next = b;
-    else
-        list->first = b;
-
-    // Se 'b' non è il primo nodo della lista, aggiorna il puntatore al nodo precedente
-    if (prev_b != NULL)
-        prev_b->next = a;
-    else
-        list->first = a;
-
-    // Scambia i puntatori al nodo successivo
-    ListItem* temp = a->next;
-    a->next = b->next;
-    b->next = temp;
-}
 
 //Funzione per ordinare i processi in base al tempo di burst
-void sortProcessesByBurstTime(ListHead* processes, int count) {
-  if(processes->first){
-    ListItem* head = processes->first;
-    int swapped;
+FakePCB* shortestJobPCB(FakeOS* os, int count) {
+  
+  if(!os->ready.first)
+    return NULL;
 
-    for(int i = 0; i <= count; i++){
-      head = processes->first;
-      swapped = 0;
-
-      for(int j = 0; j < count -i -1; j++){
-        ListItem* p1 = head;
-        ListItem* p2 = p1->next;
-        if(((FakeProcess*)p1)->predicted_burst > ((FakeProcess*)p2)->predicted_burst){
-          swapProcess(processes, p1, p2);
-          swapped = 1;
-        }
-
-        head = head->next;
-      }
-    }   
+  
+  FakePCB* shortestJobItem = (FakePCB*) os->ready.first;
+  int shortestJob = 9999;
+  ListItem* currentItem = os->ready.first;
+  while(currentItem){
+    FakePCB* pcb = (FakePCB*) currentItem;
+    currentItem = currentItem->next;
+    if(((ProcessEvent*)pcb->events.first)->duration < shortestJob && (pcb->readyTime != os->timer || os->timer == 0)){
+      //printf("SHORTEST PID: %d\n", pcb->pid);
+      shortestJob = ((ProcessEvent*)shortestJobItem->events.first)->duration;
+      shortestJobItem = pcb;
+    }
   }
+
+  return shortestJobItem;
 }
 
 
@@ -110,91 +65,128 @@ void sortProcessesByBurstTime(ListHead* processes, int count) {
 //Funzione di scheduling SJF
 void schedSJFPREEMPTIVE(FakeOS* os, void* args_){
   SchedSJFArgs* args=(SchedSJFArgs*)args_;
-  sortProcessesByBurstTime(&os->ready, os->ready.size);
-    //printf("\n\nRIORDINO I PROCESSI\t\t");
-    //printf("Processi nella coda di ready: ");
-    ListItem* currentProc = os->ready.first;
-    while (currentProc){
-      //printf("[PID = %d]\t", ((FakeProcess*)currentProc)->pid);
-      currentProc = currentProc->next;
-    }
-    //printf("\n\n");
+
+
+
+
+  printf("Processi nella coda di ready: ");
+  ListItem* currentProc = os->ready.first;
+  while (currentProc){
+    printf("[PID = %d DURATA : %d]\t", ((FakeProcess*)currentProc)->pid, ((ProcessEvent*)((FakePCB*)currentProc)->events.first)->duration);
+    currentProc = currentProc->next;
+  }
+  printf("\n");
   
-  
-  //printf("\nSONO IN SCHED SIM\n");
+
+  int pidCPU = 0;
   //MULTICPU
-  //Itero per ogni CPU della lista contenuta in FakeOS
+  //Itero per ogni CPU della lista delle CPU contenuta in FakeOS
   ListItem* currentItem = os->cpu_list.first;
   while (currentItem){
+    pidCPU++;
     FakeCPU* cpu = (FakeCPU*) currentItem;
     currentItem = currentItem->next;
     lockMutex(cpu); //Aquisisce il mutex della CPU
     
-    // look for the first process in ready
-    // if none, return
+    //Se non ci sono processi nella coda di ready rilascia il mutex e ritorna
     if (! os->ready.first){
       unlockMutex(cpu);
       return;
     }
     
-
-    // Look at the first process in ready
-    FakePCB* pcb = (FakePCB*)os->ready.first;
-
     
 
-    // Avoid executing a process in the same epoch it's inserted into the ready queue
+    //Inizializza il pcb con il primo processo della lista ready ordinata
+    FakePCB* pcb = (FakePCB*)os->ready.first;
+    
+    //Evito di eseguire un processo nella stessa epoca in cui viene inserito nella lista ready
     if (pcb->readyTime == os->timer && pcb->readyTime != ((FakeProcess*)pcb)->arrival_time) {
       assert(pcb->events.first); //Assicura che il processo abbia eventi
       ProcessEvent* e = (ProcessEvent*)pcb->events.first;
       assert(e->type==CPU);
 
+      //Assegno al quanto di tempo il valore del predicted burst
       args->quantum = (int) floor(((FakeProcess*)pcb)->predicted_burst);
-      printf("\nQUANTO: %d\n", args->quantum);
+      //printf("\nQUANTUM: %d\n", args->quantum);
 
+      //Se la durata dell'evento è maggiore del quantum, creo un nuovo evento con durata quantum
+      //e aggiorno la durata dell'evento originale
       if (e->duration>args->quantum) {
         ProcessEvent* qe=(ProcessEvent*)malloc(sizeof(ProcessEvent));
         qe->list.prev=qe->list.next=0;
         qe->type=CPU;
         qe->duration=args->quantum;
         e->duration-=args->quantum;
+
+        /*printf("\ndevo riordinare\n");
+        //stampa dei processi in ready ordinati
+        printf("Processi nella coda di ready: ");
+        ListItem* currentProc = os->ready.first;
+        while (currentProc){
+          printf("[PID = %d]\t", ((FakeProcess*)currentProc)->pid);
+          currentProc = currentProc->next;
+        }
+        printf("\n");*/
         List_pushFront(&pcb->events, (ListItem*)qe);
       }
+      
       unlockMutex(cpu);
       continue;
     }
 
-    //printf("numero CPU: %d\n\n", cpu->num_cpu);
     
-    pcb = (FakePCB*) List_popFront(&os->ready);
-    cpu->running = pcb;
-      
+    if (cpu->running) {
+      List_pushBack(&os->ready, (ListItem*)cpu->running);
+      cpu->running = NULL;
+      printf("\nDANNO\n");
+    }
+
+  
+
+    //Assegno al pcb il primo processo della lista ready (eliminato da ready) e lo inserisco nella CPU
+    //if(!cpu->running){
+    pcb = shortestJobPCB(os, os->ready.size);
+    if(pcb){
+      List_detach(&os->ready, (ListItem*) pcb);
+      cpu->running = pcb;
+      printf("\nprocesso scelto dallo scheduler per la CPU [%d]: %d...\n", pidCPU, cpu->running->pid);
     
-    //printf("\n\nPROCESSO SCELTO IN SCHED_SIM: %d\n\n", pcb->pid);
+    }
+    //}
+    printf("Processi nella coda di ready: ");
+  ListItem* currentProc = os->ready.first;
+  while (currentProc){
+    printf("[PID = %d DURATA : %d]\t", ((FakeProcess*)currentProc)->pid, ((ProcessEvent*)((FakePCB*)currentProc)->events.first)->duration);
+    currentProc = currentProc->next;
+  }
+  printf("\n");
     
-    
+    //printf("Numero della CPU: %d\n", cpu->num_cpu);
+    //printf("Processo scelto per l'esecuzione sulla CPU: %d\n", pcb->pid);
+
     assert(pcb->events.first); //Assicura che il processo abbia eventi
     ProcessEvent* e = (ProcessEvent*)pcb->events.first;
     assert(e->type==CPU);
-    // look at the first event
-    // if duration>quantum
-    // push front in the list of event a CPU event of duration quantum
-    // alter the duration of the old event subtracting quantum
+
+    //printf("Durata dell'evento corrente: %d\n", e->duration);
+
+    //Assegno al quanto di tempo il valore del predicted burst
     args->quantum = (int) floor(((FakeProcess*)pcb)->predicted_burst);
     //printf("\nQUANTO: %d\n", args->quantum);
+
+    //Se la durata dell'evento è maggiore del quantum, creo un nuovo evento con durata quantum
+    //e aggiorno la durata dell'evento originale
     if (e->duration>args->quantum) {
       ProcessEvent* qe=(ProcessEvent*)malloc(sizeof(ProcessEvent));
       qe->list.prev=qe->list.next=0;
       qe->type=CPU;
       qe->duration=args->quantum;
       e->duration-=args->quantum;
+      //printf("Nuova durata: %d\n", qe->duration);
       List_pushFront(&pcb->events, (ListItem*)qe);
     }
-    
     unlockMutex(cpu); //Rilascia il mutex della CPU
   }
-
-
 }
 
 
