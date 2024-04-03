@@ -22,68 +22,59 @@ typedef struct{
   double alpha; //Fattore di previsione
 } SchedSJFArgs; 
 
-
+//Funzione che verific se ci sono CPU in esecuzione
 int running_cpu(FakeOS* os){
   ListItem* currentItem = os->cpu_list.first;
   while(currentItem){
     FakeCPU* cpu = (FakeCPU*) currentItem;
+    //Se una CPU ha un processo inesecuzione restituisce 1
     if(cpu->running)
       return 1;
     currentItem = currentItem->next;
   }
+  //Se nessuna CPU ha processi in esecuzione restituisce 0
   return 0;
 }
 
 
 
-//Funzione per ordinare i processi in base al tempo di burst
+//Funzione che restituisce il processo con il burst più breve nella coda dei processi pronti
 FakePCB* shortestJobPCB(FakeOS* os, int count) {
-  
+  //Se non ci sono processi nella coda di ready restituisce NULL
   if(!os->ready.first)
     return NULL;
 
-  
+  //Iniziallizza il PCB relativo al processo più breve con il primo processo della coda di ready
   FakePCB* shortestJobItem = (FakePCB*) os->ready.first;
+  //Inizializza il tempo di burst più breve con un valore abbastanza grande
   int shortestJob = 9999;
+  //Itero attraverso la lista dei processi pronti
   ListItem* currentItem = os->ready.first;
   while(currentItem){
     FakePCB* pcb = (FakePCB*) currentItem;
     currentItem = currentItem->next;
+    //Se il tempo di burst del processo attuale è più breve del tempo di burst più breve trovato 
+    //finora, e il processo non è passato dalla coda di waiting a quella di ready durante questa epoca
+    //di tempo, aggiorna il processo più breve e il suo tempo di burst
     if(((ProcessEvent*)pcb->events.first)->duration < shortestJob && (pcb->readyTime != os->timer || os->timer == 0)){
-      //printf("SHORTEST PID: %d\n", pcb->pid);
       shortestJob = ((ProcessEvent*)shortestJobItem->events.first)->duration;
       shortestJobItem = pcb;
     }
   }
 
+  //Restituisce il PCB con la durata di burst minore trovato
   return shortestJobItem;
 }
 
 
 
-
-//Funzione di scheduling SJF
+//Algoritmo di scheduling SJF preemptive
 void schedSJFPREEMPTIVE(FakeOS* os, void* args_){
   SchedSJFArgs* args=(SchedSJFArgs*)args_;
 
-
-
-
-  printf("Processi nella coda di ready: ");
-  ListItem* currentProc = os->ready.first;
-  while (currentProc){
-    printf("[PID = %d DURATA : %d]\t", ((FakeProcess*)currentProc)->pid, ((ProcessEvent*)((FakePCB*)currentProc)->events.first)->duration);
-    currentProc = currentProc->next;
-  }
-  printf("\n");
-  
-
-  int pidCPU = 0;
-  //MULTICPU
-  //Itero per ogni CPU della lista delle CPU contenuta in FakeOS
+  //Itera attraverso la lista delle CPU
   ListItem* currentItem = os->cpu_list.first;
   while (currentItem){
-    pidCPU++;
     FakeCPU* cpu = (FakeCPU*) currentItem;
     currentItem = currentItem->next;
     lockMutex(cpu); //Aquisisce il mutex della CPU
@@ -93,22 +84,20 @@ void schedSJFPREEMPTIVE(FakeOS* os, void* args_){
       unlockMutex(cpu);
       return;
     }
-    
-    
 
-    //Inizializza il pcb con il primo processo della lista ready ordinata
+    //Inizializza il pcb con il primo processo della coda di ready
     FakePCB* pcb = (FakePCB*)os->ready.first;
     
-    //Evito di eseguire un processo nella stessa epoca in cui viene inserito nella lista ready
+    //Evita di eseguire un processo nella stessa epoca in cui viene inserito nella coda di ready
+    //se non si tratta dell'epoca in cui il processo viene creato
     if (pcb->readyTime == os->timer && pcb->readyTime != ((FakeProcess*)pcb)->arrival_time) {
       assert(pcb->events.first); //Assicura che il processo abbia eventi
       ProcessEvent* e = (ProcessEvent*)pcb->events.first;
       assert(e->type==CPU);
 
-      //Assegno al quanto di tempo il valore del predicted burst
+      //Assegna al quanto di tempo il valore del burst predetto
       args->quantum = (int) floor(((FakeProcess*)pcb)->predicted_burst);
-      //printf("\nQUANTUM: %d\n", args->quantum);
-
+      
       //Se la durata dell'evento è maggiore del quantum, creo un nuovo evento con durata quantum
       //e aggiorno la durata dell'evento originale
       if (e->duration>args->quantum) {
@@ -117,16 +106,6 @@ void schedSJFPREEMPTIVE(FakeOS* os, void* args_){
         qe->type=CPU;
         qe->duration=args->quantum;
         e->duration-=args->quantum;
-
-        /*printf("\ndevo riordinare\n");
-        //stampa dei processi in ready ordinati
-        printf("Processi nella coda di ready: ");
-        ListItem* currentProc = os->ready.first;
-        while (currentProc){
-          printf("[PID = %d]\t", ((FakeProcess*)currentProc)->pid);
-          currentProc = currentProc->next;
-        }
-        printf("\n");*/
         List_pushFront(&pcb->events, (ListItem*)qe);
       }
       
@@ -134,45 +113,28 @@ void schedSJFPREEMPTIVE(FakeOS* os, void* args_){
       continue;
     }
 
-    
+    //Se c'è un processo in esecuzione sulla CPU, lo toglie alla CPU reinserisce nella coda dei
+    //processi pronti
     if (cpu->running) {
-      List_pushBack(&os->ready, (ListItem*)cpu->running);
+      List_pushFront(&os->ready, (ListItem*)cpu->running);
       cpu->running = NULL;
-      printf("\nDANNO\n");
     }
 
   
 
-    //Assegno al pcb il primo processo della lista ready (eliminato da ready) e lo inserisco nella CPU
-    //if(!cpu->running){
+    //Assegno al PCB il processo con durata di burst più breve
     pcb = shortestJobPCB(os, os->ready.size);
     if(pcb){
       List_detach(&os->ready, (ListItem*) pcb);
       cpu->running = pcb;
-      printf("\nprocesso scelto dallo scheduler per la CPU [%d]: %d...\n", pidCPU, cpu->running->pid);
-    
     }
-    //}
-    printf("Processi nella coda di ready: ");
-  ListItem* currentProc = os->ready.first;
-  while (currentProc){
-    printf("[PID = %d DURATA : %d]\t", ((FakeProcess*)currentProc)->pid, ((ProcessEvent*)((FakePCB*)currentProc)->events.first)->duration);
-    currentProc = currentProc->next;
-  }
-  printf("\n");
-    
-    //printf("Numero della CPU: %d\n", cpu->num_cpu);
-    //printf("Processo scelto per l'esecuzione sulla CPU: %d\n", pcb->pid);
 
     assert(pcb->events.first); //Assicura che il processo abbia eventi
     ProcessEvent* e = (ProcessEvent*)pcb->events.first;
     assert(e->type==CPU);
 
-    //printf("Durata dell'evento corrente: %d\n", e->duration);
-
-    //Assegno al quanto di tempo il valore del predicted burst
+    //Assegna al quanto di tempo il valore del burst predetto
     args->quantum = (int) floor(((FakeProcess*)pcb)->predicted_burst);
-    //printf("\nQUANTO: %d\n", args->quantum);
 
     //Se la durata dell'evento è maggiore del quantum, creo un nuovo evento con durata quantum
     //e aggiorno la durata dell'evento originale
@@ -182,7 +144,6 @@ void schedSJFPREEMPTIVE(FakeOS* os, void* args_){
       qe->type=CPU;
       qe->duration=args->quantum;
       e->duration-=args->quantum;
-      //printf("Nuova durata: %d\n", qe->duration);
       List_pushFront(&pcb->events, (ListItem*)qe);
     }
     unlockMutex(cpu); //Rilascia il mutex della CPU
@@ -350,7 +311,58 @@ void schedRR(FakeOS* os, void* args_){
   }*/
 };
 
+
+
+// Funzione per stampare il testo con effetto "hacker"
+void writtenPrint(const char *text) {
+  const char *ptr = text;
+  while (*ptr != '\0') {
+      putchar(*ptr++);
+      fflush(stdout);
+      usleep(20000); // Aggiungi un piccolo ritardo per uno stile distinto
+  }
+  putchar('\n');
+}
+
+// Funzione per disabilitare l'input dalla tastiera
+void disableKeyboardInput() {
+    struct termios term;
+    tcgetattr(STDIN_FILENO, &term);
+    term.c_lflag &= ~(ICANON | ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &term);
+}
+
+// Funzione per abilitare l'input dalla tastiera
+void enableKeyboardInput() {
+    struct termios term;
+    tcgetattr(STDIN_FILENO, &term);
+    term.c_lflag |= ICANON | ECHO;
+    tcsetattr(STDIN_FILENO, TCSANOW, &term);
+}
+
+
+
 int main(int argc, char** argv) {
+
+  system("clear");
+
+  //Disabilita l'input dalla tastiera
+  disableKeyboardInput();
+
+  //Avvio del sistema...
+  writtenPrint("\n[SYSTEM BOOTING UP...]\n");
+
+  //Stampa il nome dello scheduler con uno stile accattivante
+  printf("---------------------------------------------------\n");
+  writtenPrint("    >> Shortest Job First Preemptive Scheduler <<    ");
+  printf("---------------------------------------------------\n\n");
+
+  //Sistema pronto
+  writtenPrint("[SYSTEM READY]");
+
+  //Riabilita l'input dalla tastiera
+  enableKeyboardInput();
+
 
   int numCPU = 10; //Numero massimo di CPU
   int selectedCPU = 1; //CPU selezionata inizialmente
@@ -383,8 +395,35 @@ int main(int argc, char** argv) {
     system("clear");
     drawBar(numCPU, selectedCPU);
   }
-  printf("\nHai selezionato %d CPU.\n", selectedCPU);
+  printf("\nHai selezionato %d CPU.\n\n", selectedCPU);
 
+
+  //Variabile per memorizzare il decay coefficient inserito dall'utente
+  float decay_coefficient;
+
+  //Impostazione del valore di default del decay coefficient
+  float default_decay_coefficient = 0.5;
+
+  //Richiesta all'utente di inserire il valore del decay coefficient
+  char input[100]; //Buffer per memorizzare l'input dell'utente
+
+  printf("Inserisci il decay coefficient (valore compreso tra 0 e 1). Premi invio per default (%f): ", default_decay_coefficient);
+  fgets(input, sizeof(input), stdin);
+
+  //Verifica se l'utente ha premuto solo Invio
+  if (input[0] == '\n') {
+    decay_coefficient = default_decay_coefficient; // Utilizza il valore di default
+  } else {
+    sscanf(input, "%f", &decay_coefficient); // Altrimenti, converte la stringa inserita dall'utente in float
+  }
+
+  //Verifica che il valore sia compreso tra 0 e 1
+  if (decay_coefficient < 0 || decay_coefficient > 1) {
+    printf("Il valore del decay coefficient deve essere compreso tra 0 e 1.\n");
+    return 1; // Esci dal programma con codice di errore
+  }
+
+  printf("\nHai selezionato %f come valore del decay coefficient.\n\n", decay_coefficient);
   
 /*RR
   FakeOS_init(&os);
@@ -398,7 +437,7 @@ int main(int argc, char** argv) {
   FakeOS_init(&os);
   SchedSJFArgs ssjf_args;
   ssjf_args.quantum=7;
-  ssjf_args.alpha = 0.5;
+  ssjf_args.alpha = decay_coefficient;
   os.schedule_args=&ssjf_args;
   os.schedule_fn=schedSJFPREEMPTIVE;
 
@@ -419,7 +458,7 @@ int main(int argc, char** argv) {
   for (int i=1; i<argc; ++i){
     FakeProcess new_process;
     int num_events=FakeProcess_load(&new_process, argv[i]);
-    printf("loading [%s], pid: %d, events:%d",
+    printf("loading [%s], pid: %d, events:%d\n",
            argv[i], new_process.pid, num_events);
     if (num_events) {
       FakeProcess* new_process_ptr=(FakeProcess*)malloc(sizeof(FakeProcess));
@@ -427,19 +466,34 @@ int main(int argc, char** argv) {
       List_pushBack(&os.processes, (ListItem*)new_process_ptr);
     }
   }
-  printf("num processes in queue %d\n", os.processes.size);
+  printf("number of processes in queue %d\n\n", os.processes.size);
 
   
-  
+
+
   while(running_cpu(&os)
         || os.ready.first
         || os.waiting.first
         || os.processes.first){
-    FakeOS_simStep(&os, selectedCPU);
+    FakeOS_simStep(&os, selectedCPU, decay_coefficient);
   }
 
+  printf("\n\nFINAL STATS:\n");
+  
+  ListItem* currentItem = os.all_processes.first;
+  while(currentItem){
+    if(((FakePCB*)currentItem)->pid != 0){
+      ((FakePCB*)currentItem)->wt = ((FakePCB*)currentItem)->tat-((FakePCB*)currentItem)->run-((FakePCB*)currentItem)->wait;
+      printf("process pid: [%d]\t\tIO/BURST: %d\t\tCPU/BURST: %d\n\t\t\tturnaround time: %d\t\twaiting time: %d\n\n", ((FakePCB*)currentItem)->pid, ((FakePCB*)currentItem)->wait, ((FakePCB*)currentItem)->run, ((FakePCB*)currentItem)->tat, ((FakePCB*)currentItem)->wt);
+    }
+    currentItem = currentItem->next;
+  }
+
+
+
+
   //Deallocazione delle CPU
-  ListItem* currentItem = os.cpu_list.first;
+  currentItem = os.cpu_list.first;
   while (currentItem) {
       ListItem* nextItem = currentItem->next;
       free(currentItem);

@@ -7,10 +7,18 @@
 typedef struct {
   ListItem list;
   int pid;
+  
   ListHead events;
-  pthread_mutex_t mutex; // Mutex per il processo
-  int readyTime; //Variabile per non eseguire il processo appena messo in ready
-  int completed; //Flag di completamento
+  pthread_mutex_t mutex;   //Mutex per il processo
+  
+  int readyTime;           //Variabile contenente il tempo in cui il PCB entra nella coda di ready
+  int arrivalTime;
+
+  int wait;                //Variabile contenente il tempo in attesa totale del processo
+  int run;                 //Variabile contenente il tempo in esecuzione totale del processo
+  int tat;                 //Variabile contenente il tempo impiegato per concludere il processo
+  int wt;                  //Variabile contenente il tempo trascorso dal processo nella lista di ready
+
 } FakePCB;
 
 struct FakeOS;
@@ -24,13 +32,14 @@ typedef struct FakeOS{
   void* schedule_args;
 
   ListHead processes;
+  ListHead all_processes;
 
-  ListHead cpu_list; // Lista di CPU
+  ListHead cpu_list;          // Lista delle CPU
 
 } FakeOS;
 
 void FakeOS_init(FakeOS* os);
-void FakeOS_simStep(FakeOS* os, int sel_cpu);
+void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient);
 void FakeOS_destroy(FakeOS* os);
 
 

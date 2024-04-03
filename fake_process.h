@@ -14,12 +14,12 @@ typedef struct {
 // fake process
 typedef struct {
   ListItem list;
-  int pid; // assigned by us
+  int pid;                  //Assigned by us
   int arrival_time;
   ListHead events;
 
-  double predicted_burst; //Valore predetto del burst
-  double burst; //Valore del burst attuale
+  double predicted_burst;   //Valore predetto del burst
+  double burst;             //Valore del burst attuale
 
 } FakeProcess;
 
