@@ -11,6 +11,9 @@ typedef struct {
   ListHead events;
   pthread_mutex_t mutex;   //Mutex per il processo
   
+  double predicted_burst;   //Valore predetto del burst
+  double burst;             //Valore del burst attuale
+  
   int readyTime;           //Variabile contenente il tempo in cui il PCB entra nella coda di ready
   int arrivalTime;
 

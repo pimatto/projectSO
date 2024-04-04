@@ -64,8 +64,8 @@ void FakeOS_createProcess(FakeOS* os, FakeProcess* p) {
   new_pcb->tat = 0;
   new_pcb->wt = 0;
 
-  ((FakeProcess*) new_pcb)->burst = 0.000000;
-  ((FakeProcess*) new_pcb)->predicted_burst = 5.000000;
+  new_pcb->burst = 0.000000;
+  new_pcb->predicted_burst = 6.000000;
   //Inizializzo il mutex
   initMutex_pcb(new_pcb);
 
@@ -154,6 +154,8 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
       free(e);
       List_detach(&os->waiting, (ListItem*)pcb);
       if (!pcb->events.first) {
+        printf("|\t\tpredicted burst: %f |\n", decay_coefficient * pcb->predicted_burst + (1 - decay_coefficient) * pcb->burst);
+            
         //Termina il processo se non ci sono più eventi
         printf("|\t\tend process               |\n");
         pcb->tat = os->timer-pcb->arrivalTime;
@@ -165,12 +167,10 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
         switch (e->type){
           case CPU:
             printf("|\t\tmove to ready             |\n");
-            //Aggiorna il predicted burst del processo al primo ingresso in CPU
-            if(((FakeProcess*)pcb)->arrival_time == os->timer){
-              printf("\n\nPredicted burst del processo %d: %f X %f [pid = %d] +  (1 - %f) X %f [pid = %d]\n\n", ((FakeProcess*)pcb)->pid, decay_coefficient, ((FakeProcess*)pcb)->burst, ((FakeProcess*)pcb)->pid, decay_coefficient, ((FakeProcess*)pcb)->predicted_burst, ((FakeProcess*)pcb)->pid);
-              ((FakeProcess*)pcb)->predicted_burst = decay_coefficient * ((FakeProcess*)pcb)->predicted_burst + (1 - decay_coefficient) * ((FakeProcess*)pcb)->burst;
-            }
-            printf("|\t\tpredicted burst: %f |\n", ((FakeProcess*)pcb)->predicted_burst);
+            if(pcb->predicted_burst<10)
+              printf("|\t\tpredicted burst: %f |\n", pcb->predicted_burst);  
+            else
+              printf("|\t\tpredicted burst: %f|\n", pcb->predicted_burst);  
             if(aux != NULL){
               printf("|-----------------------------------------|\n");
             }else{
@@ -212,8 +212,10 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
     //Stampa l'ID della CPU in utilizzo
     printf("| CPU in utilizzo: ");
     for(int i = 1; i <= sel_cpu; i++){
-      if(cpu->num_cpu == i)
+      if(cpu->num_cpu == i && i != 10)
         printf("\033[0;42m CPU%d \033[0;30m ", i);
+      else if(cpu->num_cpu == i && i == 10)
+        printf("\033[0;42m CPU%d \033[0;30m", i);
     }
     printf("\033[0m                |\n");
 
@@ -238,6 +240,9 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
         assert(e->type==CPU);
         e->duration--;
 
+        //Aumento l'utilizzo della CPU
+        cpu->usage++;
+
         if(running->readyTime == os->timer-1)
           running->wt--;
 
@@ -245,10 +250,10 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
         running->run++;
 
         //Predicted burst del processo in esecuzione
-        printf("|\t\tpredicted burst: %f |\n", ((FakeProcess*)running)->predicted_burst);
+        if(e->duration != 0)
+          printf("|\t\tpredicted burst: %f |\n", running->predicted_burst);
         //Aumento il tempo di burst ad ogni CPU BURST
-        FakeProcess* runningProcess = (FakeProcess*) running;
-        runningProcess->burst++;
+        running->burst++;
         printf("|\t\tremaining time:%d",e->duration);
         if(e->duration < 10)
           printf("          |\n");
@@ -267,6 +272,7 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
 
           //Se non ci sono più eventi, il processo è terminato
           if (! running->events.first) {
+            printf("|\t\tpredicted burst: %f |\n", decay_coefficient * running->predicted_burst + (1 - decay_coefficient) * running->burst);
             printf("|\t\tend process               |\n");
             if (aux != NULL)
               printf("|-----------------------------------------|\n");
@@ -283,8 +289,16 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
             switch (e->type){
             case CPU:
               printf("|\t\tmove to ready             |\n");
-              printf("|\t\tburst time: %f      |\n", ((FakeProcess*)running)->burst);
-              printf("|\t\tpredicted burst: %f |\n", ((FakeProcess*)running)->predicted_burst);
+              if(running->burst<10)
+                printf("|\t\tburst time: %f      |\n", running->burst);
+              else
+                printf("|\t\tburst time: %f     |\n", running->burst);
+              if(running->predicted_burst<10)
+                printf("|\t\tpredicted burst: %f |\n", running->predicted_burst);
+              else
+                printf("|\t\tpredicted burst: %f|\n", running->predicted_burst);
+              
+              //printf("|\t\tpredicted burst: %f |\n", running->predicted_burst);
               List_pushBack(&os->ready, (ListItem*) running);
               if (aux != NULL)
                 printf("|-----------------------------------------|\n");
@@ -293,13 +307,16 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
               break;
             case IO:
               printf("|\t\tmove to waiting           |\n");
-              if(((FakeProcess*)running)->burst<10)
-                printf("|\t\tburst time: %f      |\n", ((FakeProcess*)running)->burst);
+              if(running->burst<10)
+                printf("|\t\tburst time: %f      |\n", running->burst);
               else
-                printf("|\t\tburst time: %f     |\n", ((FakeProcess*)running)->burst);
-              printf("|\t\tpredicted burst %f  |\n", decay_coefficient * ((FakeProcess*)running)->predicted_burst + (1 - decay_coefficient) * ((FakeProcess*)running)->burst);
-              ((FakeProcess*)running)->predicted_burst = decay_coefficient * ((FakeProcess*)running)->predicted_burst + (1 - decay_coefficient) * ((FakeProcess*)running)->burst;
-              ((FakeProcess*)running)->burst = 0;
+                printf("|\t\tburst time: %f     |\n", running->burst);
+              if(running->predicted_burst<10)
+                printf("|\t\tpredicted burst %f  |\n", decay_coefficient * running->predicted_burst + (1 - decay_coefficient) * running->burst);
+              else
+                printf("|\t\tpredicted burst %f |\n", decay_coefficient * running->predicted_burst + (1 - decay_coefficient) * running->burst);
+              running->predicted_burst = decay_coefficient * running->predicted_burst + (1 - decay_coefficient) * running->burst;
+              running->burst = 0;
               List_pushBack(&os->waiting, (ListItem*) running);
               if (aux != NULL)
                 printf("|-----------------------------------------|\n");
@@ -318,7 +335,7 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
     }
 
     //Chiamo la funzione di scheduling, se definita
-    if (os->schedule_fn && !cpu->running && os->ready.first && ((FakeProcess*)os->ready.first)->predicted_burst < ((ProcessEvent*)((FakePCB*)os->ready.first)->events.first)->duration){
+    if (os->schedule_fn && !cpu->running && os->ready.first && ((FakePCB*)os->ready.first)->predicted_burst < ((ProcessEvent*)((FakePCB*)os->ready.first)->events.first)->duration){
       (*os->schedule_fn)(os, os->schedule_args);
     }
 
@@ -332,7 +349,7 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
   printf("ready processes:\t");
   aux = os->ready.first;
   if(!aux)
-    printf("-\n");
+    printf("-");
   while (aux){
     printf("[%d] ", ((FakePCB*)aux)->pid);
     aux = aux->next;
@@ -342,7 +359,7 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
   printf("pending processes:\t");
   aux = os->waiting.first;
   if(!aux)
-    printf("-\n");
+    printf("-");
   while (aux){
     printf("[%d] ", ((FakePCB*)aux)->pid);
     aux = aux->next;
@@ -357,4 +374,25 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
 
 
 void FakeOS_destroy(FakeOS* os) {
+  // Libera i processi della lista contenente tutti i processi
+  ListItem* currentItem = os->all_processes.first;
+  while (currentItem) {
+    FakePCB* pcb = (FakePCB*)currentItem;
+    ListItem* nextItem = currentItem->next;
+    free(pcb); // Liberare l'elemento della lista e il suo contenuto
+    currentItem = nextItem;
+  }
+  // Deallocazione delle CPU
+  currentItem = os->cpu_list.first;
+  while (currentItem) {
+    // Effettua il cast dell'elemento corrente a FakeCPU
+    FakeCPU* cpu = ((FakeCPU*)currentItem);
+    ListItem* nextItem = currentItem->next;
+    
+    // Dealloca l'elemento corrente
+    free(cpu);
+    
+    // Avanza all'elemento successivo nella lista
+    currentItem = nextItem;
+  }
 }

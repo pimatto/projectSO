@@ -25,7 +25,7 @@ fake_process_test:	fake_process_test.c $(OBJS)
 	$(CC) $(CCOPTS) -o $@ $^
 
 sched_sim:	sched_sim.c $(OBJS)
-	$(CC) $(CCOPTS) -o $@ $^ -lm
+	$(CC) $(CCOPTS) -o $@ $^ -lm -g
 
 clean:
 	rm -rf *.o *~ $(OBJS) $(BINS)

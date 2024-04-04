@@ -18,8 +18,6 @@ typedef struct {
   int arrival_time;
   ListHead events;
 
-  double predicted_burst;   //Valore predetto del burst
-  double burst;             //Valore del burst attuale
 
 } FakeProcess;
 

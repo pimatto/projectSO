@@ -8,18 +8,23 @@
 #include "fake_cpu.h"
 
 
+//Definizione dei codici per i colori di testo e di sfondo (ANSI ESCAPE)
+#define ANSI_COLOR_BOLD    "\x1b[1m"
+#define ANSI_COLOR_WHITE   "\x1b[47m"
+#define ANSI_COLOR_RESET   "\x1b[0m"
+#define ANSI_COLOR_BLACK   "\x1b[30m"
+#define ANSI_COLOR_RED     "\x1b[31m"
+#define ANSI_COLOR_GREEN   "\x1b[32m"
+#define ANSI_COLOR_YELLOW   "\x1b[33m"
 
 
 
-
-
-
-
+FakeOS os;
 
 //Struttura per memorizzare gli argomenti dello scheduler SJF
 typedef struct{
-  int quantum; //Lunghezza del quanto
-  double alpha; //Fattore di previsione
+  int quantum;        //Lunghezza del quanto
+  double alpha;       //Fattore di previsione
 } SchedSJFArgs; 
 
 //Funzione che verific se ci sono CPU in esecuzione
@@ -47,7 +52,7 @@ FakePCB* shortestJobPCB(FakeOS* os, int count) {
   //Iniziallizza il PCB relativo al processo più breve con il primo processo della coda di ready
   FakePCB* shortestJobItem = (FakePCB*) os->ready.first;
   //Inizializza il tempo di burst più breve con un valore abbastanza grande
-  int shortestJob = 9999;
+  float shortestJob = 9999.000000;
   //Itero attraverso la lista dei processi pronti
   ListItem* currentItem = os->ready.first;
   while(currentItem){
@@ -56,9 +61,13 @@ FakePCB* shortestJobPCB(FakeOS* os, int count) {
     //Se il tempo di burst del processo attuale è più breve del tempo di burst più breve trovato 
     //finora, e il processo non è passato dalla coda di waiting a quella di ready durante questa epoca
     //di tempo, aggiorna il processo più breve e il suo tempo di burst
-    if(((ProcessEvent*)pcb->events.first)->duration < shortestJob && (pcb->readyTime != os->timer || os->timer == 0)){
-      shortestJob = ((ProcessEvent*)shortestJobItem->events.first)->duration;
+    
+    //float aux = pcb->predicted_burst-pcb->burst;
+    //printf("\ndevo scegliere: %d --> %f\n", pcb->pid, aux);
+    if(pcb->predicted_burst < shortestJob && (pcb->readyTime != os->timer || os->timer == 0)){
+      shortestJob = pcb->predicted_burst;
       shortestJobItem = pcb;
+      //printf("\n\nscelgo quello minore: %d --> %f\n\n", shortestJobItem->pid, shortestJob);
     }
   }
 
@@ -90,13 +99,13 @@ void schedSJFPREEMPTIVE(FakeOS* os, void* args_){
     
     //Evita di eseguire un processo nella stessa epoca in cui viene inserito nella coda di ready
     //se non si tratta dell'epoca in cui il processo viene creato
-    if (pcb->readyTime == os->timer && pcb->readyTime != ((FakeProcess*)pcb)->arrival_time) {
+    if (pcb->readyTime == os->timer && pcb->readyTime != pcb->arrivalTime) {
       assert(pcb->events.first); //Assicura che il processo abbia eventi
       ProcessEvent* e = (ProcessEvent*)pcb->events.first;
       assert(e->type==CPU);
 
       //Assegna al quanto di tempo il valore del burst predetto
-      args->quantum = (int) floor(((FakeProcess*)pcb)->predicted_burst);
+      args->quantum = (int) floor(pcb->predicted_burst);
       
       //Se la durata dell'evento è maggiore del quantum, creo un nuovo evento con durata quantum
       //e aggiorno la durata dell'evento originale
@@ -134,7 +143,7 @@ void schedSJFPREEMPTIVE(FakeOS* os, void* args_){
     assert(e->type==CPU);
 
     //Assegna al quanto di tempo il valore del burst predetto
-    args->quantum = (int) floor(((FakeProcess*)pcb)->predicted_burst);
+    args->quantum = (int) floor(pcb->predicted_burst);
 
     //Se la durata dell'evento è maggiore del quantum, creo un nuovo evento con durata quantum
     //e aggiorno la durata dell'evento originale
@@ -148,7 +157,7 @@ void schedSJFPREEMPTIVE(FakeOS* os, void* args_){
     }
     unlockMutex(cpu); //Rilascia il mutex della CPU
   }
-}
+};
 
 
 
@@ -204,7 +213,7 @@ char getch() {
 
 // Funzione per disegnare la barra di configurazione
 void drawBar(int numCPU, int selectedCPU) {
-    printf("\nSeleziona il numero di CPU:\n");
+    printf("\n"ANSI_COLOR_WHITE ANSI_COLOR_BOLD ANSI_COLOR_BLACK"Select the number of CPUs:\n\n"ANSI_COLOR_RESET"\n");
     for (int i = 1; i <= numCPU; i++) {
         if (i == selectedCPU) {
             printf("\033[1;32m"); // Imposta il colore verde per la CPU selezionata
@@ -231,113 +240,42 @@ void drawBar(int numCPU, int selectedCPU) {
 
 
 
-
-
-
-FakeOS os;
-
-//Struttura per memorizzare gli argomenti dello scheduler RR
-typedef struct {
-  int quantum; //Lunghezza del quanto
-} SchedRRArgs;
-
-//Funzione di scheduling RR
-void schedRR(FakeOS* os, void* args_){
-  SchedRRArgs* args=(SchedRRArgs*)args_;
-  
-  
-  //MULTICPU
-  //Itero per ogni CPU della lista contenuta in FakeOS
-  ListItem* currentItem = os->cpu_list.first;
-  while (currentItem){
-    FakeCPU* cpu = (FakeCPU*) currentItem;
-    currentItem = currentItem->next;
-    lockMutex(cpu); //Aquisisce il mutex della CPU
-    // look for the first process in ready
-    // if none, return
-    if (! os->ready.first){
-      unlockMutex(cpu);
-      return;
-    }
-
-    FakePCB* pcb=(FakePCB*) List_popFront(&os->ready);
-    cpu->running=pcb; //Assegnazione del processo alla CPU
-
-    assert(pcb->events.first); //Assicura che il processo abbia eventi
-    ProcessEvent* e = (ProcessEvent*)pcb->events.first;
-    assert(e->type==CPU);
-
-    // look at the first event
-    // if duration>quantum
-    // push front in the list of event a CPU event of duration quantum
-    // alter the duration of the old event subtracting quantum
-    if (e->duration>args->quantum) {
-      ProcessEvent* qe=(ProcessEvent*)malloc(sizeof(ProcessEvent));
-      qe->list.prev=qe->list.next=0;
-      qe->type=CPU;
-      qe->duration=args->quantum;
-      e->duration-=args->quantum;
-      List_pushFront(&pcb->events, (ListItem*)qe);
-    }
-    unlockMutex(cpu); //Rilascia il mutex della CPU
-  }
-  
-
-
-  /*ORIGINALE
-  // look for the first process in ready
-  // if none, return
-  if (! os->ready.first)
-    return;
-
-  FakePCB* pcb=(FakePCB*) List_popFront(&os->ready);
-  os->running=pcb;
-  
-  assert(pcb->events.first);
-  ProcessEvent* e = (ProcessEvent*)pcb->events.first;
-  assert(e->type==CPU);
-
-  // look at the first event
-  // if duration>quantum
-  // push front in the list of event a CPU event of duration quantum
-  // alter the duration of the old event subtracting quantum
-  if (e->duration>args->quantum) {
-    ProcessEvent* qe=(ProcessEvent*)malloc(sizeof(ProcessEvent));
-    qe->list.prev=qe->list.next=0;
-    qe->type=CPU;
-    qe->duration=args->quantum;
-    e->duration-=args->quantum;
-    List_pushFront(&pcb->events, (ListItem*)qe);
-  }*/
-};
-
-
-
-// Funzione per stampare il testo con effetto "hacker"
+// Funzione per stampare il testo con effetto
 void writtenPrint(const char *text) {
   const char *ptr = text;
   while (*ptr != '\0') {
-      putchar(*ptr++);
-      fflush(stdout);
-      usleep(20000); // Aggiungi un piccolo ritardo per uno stile distinto
+    putchar(*ptr++);
+    fflush(stdout);
+    usleep(20000); //Aggiungi un piccolo ritardo
   }
-  putchar('\n');
+  
 }
 
-// Funzione per disabilitare l'input dalla tastiera
+// Funzione per stampare il testo con effetto più lento
+void writtenPrints(const char *text) {
+  const char *ptr = text;
+  while (*ptr != '\0') {
+    putchar(*ptr++);
+    fflush(stdout);
+    usleep(45000); //Aggiungi un piccolo ritardo
+  }
+  
+}
+
+//Funzione per disabilitare l'input dalla tastiera
 void disableKeyboardInput() {
-    struct termios term;
-    tcgetattr(STDIN_FILENO, &term);
-    term.c_lflag &= ~(ICANON | ECHO);
-    tcsetattr(STDIN_FILENO, TCSANOW, &term);
+  struct termios term;
+  tcgetattr(STDIN_FILENO, &term);
+  term.c_lflag &= ~(ICANON | ECHO);
+  tcsetattr(STDIN_FILENO, TCSANOW, &term);
 }
 
-// Funzione per abilitare l'input dalla tastiera
+//Funzione per abilitare l'input dalla tastiera
 void enableKeyboardInput() {
-    struct termios term;
-    tcgetattr(STDIN_FILENO, &term);
-    term.c_lflag |= ICANON | ECHO;
-    tcsetattr(STDIN_FILENO, TCSANOW, &term);
+  struct termios term;
+  tcgetattr(STDIN_FILENO, &term);
+  term.c_lflag |= ICANON | ECHO;
+  tcsetattr(STDIN_FILENO, TCSANOW, &term);
 }
 
 
@@ -350,15 +288,17 @@ int main(int argc, char** argv) {
   disableKeyboardInput();
 
   //Avvio del sistema...
-  writtenPrint("\n[SYSTEM BOOTING UP...]\n");
+  writtenPrints("\n"ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_YELLOW"[SYSTEM BOOTING UP...]"ANSI_COLOR_RESET"\n\n");
+
+  
 
   //Stampa il nome dello scheduler con uno stile accattivante
-  printf("---------------------------------------------------\n");
-  writtenPrint("    >> Shortest Job First Preemptive Scheduler <<    ");
-  printf("---------------------------------------------------\n\n");
+  printf("------------------------------------------------------------------------\n");
+  writtenPrint("\t    >> Shortest Job First Preemptive Scheduler <<    \n");
+  printf("------------------------------------------------------------------------\n\n");
 
   //Sistema pronto
-  writtenPrint("[SYSTEM READY]");
+  writtenPrints("\n"ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_GREEN"[SYSTEM READY]"ANSI_COLOR_RESET"\n\n\n");
 
   //Riabilita l'input dalla tastiera
   enableKeyboardInput();
@@ -395,7 +335,13 @@ int main(int argc, char** argv) {
     system("clear");
     drawBar(numCPU, selectedCPU);
   }
-  printf("\nHai selezionato %d CPU.\n\n", selectedCPU);
+
+  //Disabilita l'input dalla tastiera
+  disableKeyboardInput();
+
+  writtenPrint("\n\nYou have selected ");
+  printf("%d", selectedCPU);
+  writtenPrint(" CPU.\n\n");
 
 
   //Variabile per memorizzare il decay coefficient inserito dall'utente
@@ -407,7 +353,11 @@ int main(int argc, char** argv) {
   //Richiesta all'utente di inserire il valore del decay coefficient
   char input[100]; //Buffer per memorizzare l'input dell'utente
 
-  printf("Inserisci il decay coefficient (valore compreso tra 0 e 1). Premi invio per default (%f): ", default_decay_coefficient);
+  printf(ANSI_COLOR_WHITE ANSI_COLOR_BOLD ANSI_COLOR_BLACK"\n\nEnter the decay coefficient (value between 0 and 1). Press enter by default (%f):"ANSI_COLOR_RESET" ", default_decay_coefficient);
+
+  //Riabilita l'input dalla tastiera
+  enableKeyboardInput();
+
   fgets(input, sizeof(input), stdin);
 
   //Verifica se l'utente ha premuto solo Invio
@@ -419,21 +369,23 @@ int main(int argc, char** argv) {
 
   //Verifica che il valore sia compreso tra 0 e 1
   if (decay_coefficient < 0 || decay_coefficient > 1) {
-    printf("Il valore del decay coefficient deve essere compreso tra 0 e 1.\n");
+    writtenPrint("The value of the decay coefficient must be between 0 and 1.\n\n");
     return 1; // Esci dal programma con codice di errore
   }
 
-  printf("\nHai selezionato %f come valore del decay coefficient.\n\n", decay_coefficient);
-  
-/*RR
-  FakeOS_init(&os);
-  SchedRRArgs srr_args;
-  srr_args.quantum=5;
-  os.schedule_args=&srr_args;
-  os.schedule_fn=schedRR;
-*/
+  //Disabilita l'input dalla tastiera
+  disableKeyboardInput();
 
-//SJF DA CAMBIARE
+  writtenPrint("\nYou have selected ");
+  printf("%f", decay_coefficient);
+  writtenPrint(" as the value of the decay coefficient.\n\n");
+  
+  
+  
+  //Inizio della simulazione...
+  writtenPrints("\n"ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_RED"[START SIMULATION...]\n\n"ANSI_COLOR_RESET"\n");
+
+  //SJF PREEMPTIVE
   FakeOS_init(&os);
   SchedSJFArgs ssjf_args;
   ssjf_args.quantum=7;
@@ -445,12 +397,19 @@ int main(int argc, char** argv) {
   //Inizializzazione delle CPU
   int aux = 1;
   for(int i = 0; i < selectedCPU; i++){
+    //Allocazione di una nuova CPU
     FakeCPU* cpu = (FakeCPU*)malloc(sizeof(FakeCPU));
+
+    //Inizializzazione della CPU
     FakeCPU_init(cpu);
+    
+    //Impostazione del numero della CPU
     cpu->num_cpu = aux;
-    aux +=1;
-    initMutex(cpu); //Inizializzazione del mutex per la CPU
-    List_pushBack(&os.cpu_list, (ListItem*) cpu);
+    
+    //Aggiunta della CPU alla lista
+    List_pushBack(&os.cpu_list, (ListItem*)cpu);
+    
+    aux += 1;
   }
   
 
@@ -466,8 +425,10 @@ int main(int argc, char** argv) {
       List_pushBack(&os.processes, (ListItem*)new_process_ptr);
     }
   }
-  printf("number of processes in queue %d\n\n", os.processes.size);
-
+  writtenPrint("\n\nNumber of processes in queue ");
+  printf("%d", os.processes.size);
+  writtenPrint("\n\n\n\n\n");
+  writtenPrints(ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_GREEN"[EXECUTION... ... ... ...]"ANSI_COLOR_RESET);
   
 
 
@@ -478,27 +439,83 @@ int main(int argc, char** argv) {
     FakeOS_simStep(&os, selectedCPU, decay_coefficient);
   }
 
-  printf("\n\nFINAL STATS:\n");
-  
+  //Fine della simulazione...
+  writtenPrints("\n\n\n"ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_RED"[END OF SIMULATION...]"ANSI_COLOR_RESET"\n");
+
+  //Stampa delle statistiche
+  writtenPrints("\n\n\n"ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_GREEN"[FINAL REPORT...]"ANSI_COLOR_RESET"\n");
+
+  printf("\n\n+----------------------------------------------------------------------+\n");
+  printf("|" ANSI_COLOR_WHITE ANSI_COLOR_BOLD "                                                                      " ANSI_COLOR_RESET "|\n");
+  printf("|" ANSI_COLOR_WHITE ANSI_COLOR_BOLD ANSI_COLOR_BLACK "                           FINAL STATISTICS                           " ANSI_COLOR_RESET "|\n");
+  printf("|" ANSI_COLOR_WHITE ANSI_COLOR_BOLD "                                                                      " ANSI_COLOR_RESET "|\n");
+  printf("+----------------------------------------------------------------------+\n");
+
+
+
+  printf("\n\n\n------------------------------------------------------------------------\n\n");
+  printf(ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_YELLOW"Total time of the simulation:"ANSI_COLOR_RESET" \t\t\t\t\t"ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_RED"%d"ANSI_COLOR_RESET"\n\n", os.timer);
+  printf(ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_YELLOW"Number of processes in the simulation:"ANSI_COLOR_RESET" \t\t\t\t"ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_RED"%d"ANSI_COLOR_RESET"\n\n", os.all_processes.size);
+  printf(ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_YELLOW"Number of CPUs in the simulation:"ANSI_COLOR_RESET" \t\t\t\t"ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_RED"%d"ANSI_COLOR_RESET"\n\n", os.cpu_list.size);
+  printf("\n------------------------------------------------------------------------\n\n");
+
+  writtenPrint(ANSI_COLOR_WHITE ANSI_COLOR_BOLD ANSI_COLOR_BLACK"Total process burst (CPU and IO burst):"ANSI_COLOR_RESET"\n\n");
   ListItem* currentItem = os.all_processes.first;
+  printf("\t\t\t\t\tCPU-BURST\t\tIO-BURST\n\n");
+  while(currentItem){
+    if(((FakePCB*)currentItem)->pid != 0)
+      printf("\tProcess pid [%d]\t\t\t%d\t\t\t%d\n", ((FakePCB*)currentItem)->pid, ((FakePCB*)currentItem)->run, ((FakePCB*)currentItem)->wait);
+    currentItem = currentItem->next;
+  }
+  printf("\n------------------------------------------------------------------------\n\n");
+  writtenPrint(ANSI_COLOR_WHITE ANSI_COLOR_BOLD ANSI_COLOR_BLACK"Turnaround time (time to complete a process):"ANSI_COLOR_RESET"\n\n");
+  currentItem = os.all_processes.first;
+  float total_tat = 0;
   while(currentItem){
     if(((FakePCB*)currentItem)->pid != 0){
-      ((FakePCB*)currentItem)->wt = ((FakePCB*)currentItem)->tat-((FakePCB*)currentItem)->run-((FakePCB*)currentItem)->wait;
-      printf("process pid: [%d]\t\tIO/BURST: %d\t\tCPU/BURST: %d\n\t\t\tturnaround time: %d\t\twaiting time: %d\n\n", ((FakePCB*)currentItem)->pid, ((FakePCB*)currentItem)->wait, ((FakePCB*)currentItem)->run, ((FakePCB*)currentItem)->tat, ((FakePCB*)currentItem)->wt);
+      ((FakePCB*)currentItem)->tat++;
+      total_tat += ((FakePCB*)currentItem)->tat;
+      printf("\tprocess pid [%d]\t\t\t\t\t\t%d\n", ((FakePCB*)currentItem)->pid, ((FakePCB*)currentItem)->tat);
     }
     currentItem = currentItem->next;
   }
-
-
-
-
-  //Deallocazione delle CPU
-  currentItem = os.cpu_list.first;
-  while (currentItem) {
-      ListItem* nextItem = currentItem->next;
-      free(currentItem);
-      currentItem = nextItem;
+  printf("\n\t"ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_YELLOW"Average Turnaround Time:"ANSI_COLOR_RESET"\t\t\t\t"ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_RED"%0.3f"ANSI_COLOR_RESET"\n", total_tat/os.all_processes.size);
+  printf("\n------------------------------------------------------------------------\n\n");
+  writtenPrint(ANSI_COLOR_WHITE ANSI_COLOR_BOLD ANSI_COLOR_BLACK"Waiting time (time a process has been waiting in the ready queue):"ANSI_COLOR_RESET"\n\n");
+  currentItem = os.all_processes.first;
+  float total_wt = 0;
+  while(currentItem){
+    if(((FakePCB*)currentItem)->pid != 0){
+      ((FakePCB*)currentItem)->wt = ((FakePCB*)currentItem)->tat-((FakePCB*)currentItem)->run-((FakePCB*)currentItem)->wait;
+      total_wt += ((FakePCB*)currentItem)->wt;
+      printf("\tprocess pid [%d]\t\t\t\t\t\t%d\n", ((FakePCB*)currentItem)->pid, ((FakePCB*)currentItem)->wt);
+    }
+    currentItem = currentItem->next;
   }
+  printf("\n\t"ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_YELLOW"Average Waiting Time:"ANSI_COLOR_RESET"\t\t\t\t\t"ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_RED"%0.3f"ANSI_COLOR_RESET"\n", total_wt/os.all_processes.size);
+  printf("\n------------------------------------------------------------------------\n\n");
+  writtenPrint(ANSI_COLOR_WHITE ANSI_COLOR_BOLD ANSI_COLOR_BLACK"CPU utilization (fraction of the time the CPU is used by the process):"ANSI_COLOR_RESET"\n\n");
+  currentItem = os.cpu_list.first;
+  float total_usage = 0;
+  while(currentItem){
+    total_usage += (((FakeCPU*)currentItem)->usage/(os.timer))*100;
+    printf("\tCPU ID [%d]\t\t\t\t\t\t%0.2f%%\n", ((FakeCPU*)currentItem)->num_cpu, (((FakeCPU*)currentItem)->usage/(os.timer))*100);
+    currentItem = currentItem->next;
+  }
+  printf("\n\t"ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_YELLOW"Average CPU Utilization:"ANSI_COLOR_RESET"\t\t\t\t"ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_RED"%0.3f%%"ANSI_COLOR_RESET"\n", total_usage/os.cpu_list.size);
+
+  printf("\n------------------------------------------------------------------------\n\n");
+  float throughput = (float)(os.all_processes.size)/(float)(os.timer);
+  printf(ANSI_COLOR_WHITE ANSI_COLOR_BOLD ANSI_COLOR_BLACK"Throughput (number of processes that complete in total time):"ANSI_COLOR_RESET"\t"ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_RED"%f"ANSI_COLOR_RESET"\n", throughput);
+  printf("\n------------------------------------------------------------------------\n\n\n\n");
+
+  writtenPrints("\n"ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_RED"[SYSTEM SHUTDOWN...]"ANSI_COLOR_RESET"\n\n\n");
+
+  //Riabilita l'input dalla tastiera
+  enableKeyboardInput();
+
+
+  FakeOS_destroy(&os);
 }
 
 
