@@ -369,7 +369,7 @@ int main(int argc, char** argv) {
 
   //Verifica che il valore sia compreso tra 0 e 1
   if (decay_coefficient < 0 || decay_coefficient > 1) {
-    writtenPrint("The value of the decay coefficient must be between 0 and 1.\n\n");
+    writtenPrint("\nThe value of the decay coefficient must be between 0 and 1.\n\n");
     return 1; // Esci dal programma con codice di errore
   }
 
