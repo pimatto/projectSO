@@ -428,7 +428,7 @@ int main(int argc, char** argv) {
   writtenPrint("\n\nNumber of processes in queue ");
   printf("%d", os.processes.size);
   writtenPrint("\n\n\n\n\n");
-  writtenPrints(ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_GREEN"[EXECUTION... ... ... ...]"ANSI_COLOR_RESET);
+  writtenPrints(ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_GREEN"[EXECUTION... ... ... ...]\n\n\n"ANSI_COLOR_RESET);
   
 
 

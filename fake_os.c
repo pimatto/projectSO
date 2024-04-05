@@ -65,7 +65,7 @@ void FakeOS_createProcess(FakeOS* os, FakeProcess* p) {
   new_pcb->wt = 0;
 
   new_pcb->burst = 0.000000;
-  new_pcb->predicted_burst = 6.000000;
+  new_pcb->predicted_burst = 10.000000;
   //Inizializzo il mutex
   initMutex_pcb(new_pcb);
 
@@ -167,7 +167,7 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
         switch (e->type){
           case CPU:
             printf("|\t\tmove to ready             |\n");
-            if(pcb->predicted_burst<10)
+            if(pcb->predicted_burst<10.000000)
               printf("|\t\tpredicted burst: %f |\n", pcb->predicted_burst);  
             else
               printf("|\t\tpredicted burst: %f|\n", pcb->predicted_burst);  
@@ -250,8 +250,12 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
         running->run++;
 
         //Predicted burst del processo in esecuzione
-        if(e->duration != 0)
-          printf("|\t\tpredicted burst: %f |\n", running->predicted_burst);
+        if(e->duration != 0){
+          if(running->predicted_burst<10.000000)
+            printf("|\t\tpredicted burst: %f |\n", running->predicted_burst);
+          else
+            printf("|\t\tpredicted burst: %f|\n", running->predicted_burst);
+        }
         //Aumento il tempo di burst ad ogni CPU BURST
         running->burst++;
         printf("|\t\tremaining time:%d",e->duration);
@@ -272,7 +276,10 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
 
           //Se non ci sono più eventi, il processo è terminato
           if (! running->events.first) {
-            printf("|\t\tpredicted burst: %f |\n", decay_coefficient * running->predicted_burst + (1 - decay_coefficient) * running->burst);
+            if((decay_coefficient * running->predicted_burst + (1 - decay_coefficient) * running->burst)<10.000000)
+              printf("|\t\tpredicted burst: %f |\n", decay_coefficient * running->predicted_burst + (1 - decay_coefficient) * running->burst);
+            else
+              printf("|\t\tpredicted burst: %f|\n", decay_coefficient * running->predicted_burst + (1 - decay_coefficient) * running->burst);
             printf("|\t\tend process               |\n");
             if (aux != NULL)
               printf("|-----------------------------------------|\n");
@@ -293,7 +300,7 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
                 printf("|\t\tburst time: %f      |\n", running->burst);
               else
                 printf("|\t\tburst time: %f     |\n", running->burst);
-              if(running->predicted_burst<10)
+              if(running->predicted_burst<10.000000)
                 printf("|\t\tpredicted burst: %f |\n", running->predicted_burst);
               else
                 printf("|\t\tpredicted burst: %f|\n", running->predicted_burst);
@@ -307,14 +314,14 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
               break;
             case IO:
               printf("|\t\tmove to waiting           |\n");
-              if(running->burst<10)
+              if(running->burst<10.000000)
                 printf("|\t\tburst time: %f      |\n", running->burst);
               else
                 printf("|\t\tburst time: %f     |\n", running->burst);
-              if(running->predicted_burst<10)
-                printf("|\t\tpredicted burst %f  |\n", decay_coefficient * running->predicted_burst + (1 - decay_coefficient) * running->burst);
-              else
+              if(running->predicted_burst<10.000000)
                 printf("|\t\tpredicted burst %f |\n", decay_coefficient * running->predicted_burst + (1 - decay_coefficient) * running->burst);
+              else
+                printf("|\t\tpredicted burst %f  |\n", decay_coefficient * running->predicted_burst + (1 - decay_coefficient) * running->burst);
               running->predicted_burst = decay_coefficient * running->predicted_burst + (1 - decay_coefficient) * running->burst;
               running->burst = 0;
               List_pushBack(&os->waiting, (ListItem*) running);
