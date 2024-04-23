@@ -18,6 +18,7 @@ typedef struct {
   int arrival_time;
   ListHead events;
 
+  int nominal_priority;
 
 } FakeProcess;
 

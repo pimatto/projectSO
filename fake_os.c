@@ -30,6 +30,7 @@ void FakeOS_init(FakeOS* os) {
   List_init(&os->all_processes);
   os->timer=0;
   os->schedule_fn=0;
+  os->max_priority = -1;
 }
 
 void FakeOS_createProcess(FakeOS* os, FakeProcess* p) {
@@ -69,6 +70,10 @@ void FakeOS_createProcess(FakeOS* os, FakeProcess* p) {
   //Inizializzo il mutex
   initMutex_pcb(new_pcb);
 
+  new_pcb->nominal_priority = p->nominal_priority;
+  new_pcb->time_priority = p->nominal_priority;
+  new_pcb->aging = 0;
+
 
   assert(new_pcb->events.first && "process without events");
 
@@ -77,7 +82,14 @@ void FakeOS_createProcess(FakeOS* os, FakeProcess* p) {
   ProcessEvent* e=(ProcessEvent*)new_pcb->events.first;
   switch(e->type){
   case CPU:
-    List_pushBack(&os->ready, (ListItem*) new_pcb);
+    //Se lo scheduler utilizza code di priorità, inserisce il PCB nella coda relativa alla
+    //sua priorità
+    if(os->max_priority != -1){
+      List_pushBack(&os->priority_queues[new_pcb->nominal_priority], (ListItem*) new_pcb);
+    }
+    //Altrimenti il PCB viene inserito nell'unica coda di ready
+    else
+      List_pushBack(&os->ready, (ListItem*) new_pcb);
     break;
   case IO:
     List_pushBack(&os->waiting, (ListItem*) new_pcb);
@@ -98,7 +110,7 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
   printf("\033[0;32m|              TIME: %08d             |\033[0m\n", os->timer);
   printf("\033[0;32m+-----------------------------------------+\033[0m\n\n");
   
-  //Scansione dei processi nella coda di waiting e creazione dei processi appena arrivati
+  //Scansione dei processi e creazione dei processi appena arrivati
   ListItem* aux=os->processes.first;
   if(aux){
     printf("+-----------------------------------------+\n");
@@ -177,7 +189,13 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
               printf("+-----------------------------------------+\n");
             }
             pcb->readyTime = os->timer;
-            List_pushBack(&os->ready, (ListItem*) pcb);
+            //Se lo scheduler utilizza code di priorità, inserisce il PCB nella coda relativa alla
+            //sua priorità
+            if(os->max_priority != -1)
+              List_pushBack(&os->priority_queues[pcb->nominal_priority], (ListItem*) pcb);
+            //Altrimenti il PCB viene inserito nell'unica coda di ready
+            else
+              List_pushBack(&os->ready, (ListItem*) pcb);
             break;
           case IO:
             printf("|\t\tmove to waiting           |\n");
@@ -248,6 +266,9 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
 
         //Aumento del tempo di esecuzione totale del processo
         running->run++;
+        //Se lo scheduler utilizza code di priorità, viene stampata la priorità del PCB
+        if(os->max_priority != -1)
+          printf("|\t\tpriority: %d\t\t  |\n", running->time_priority);
 
         //Predicted burst del processo in esecuzione
         if(e->duration != 0){
@@ -273,6 +294,11 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
           unlockMutex_pcb(running);
           List_popFront(&running->events);
           free(e);
+
+          //Azzeramento tempo di attesa nella coda di ready di appertenza e reimpostazione
+          //della priorità al valore di default
+          running->aging = 0;
+          running->time_priority = running->nominal_priority;
 
           //Se non ci sono più eventi, il processo è terminato
           if (! running->events.first) {
@@ -306,7 +332,10 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
                 printf("|\t\tpredicted burst: %f|\n", running->predicted_burst);
               
               //printf("|\t\tpredicted burst: %f |\n", running->predicted_burst);
-              List_pushBack(&os->ready, (ListItem*) running);
+              if(&os->priority_queues[0])
+                List_pushBack(&os->priority_queues[running->nominal_priority], (ListItem*) running);
+              else
+                List_pushBack(&os->ready, (ListItem*) running);
               if (aux != NULL)
                 printf("|-----------------------------------------|\n");
               else
@@ -321,7 +350,7 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
               if(running->predicted_burst<10.000000)
                 printf("|\t\tpredicted burst %f |\n", decay_coefficient * running->predicted_burst + (1 - decay_coefficient) * running->burst);
               else
-                printf("|\t\tpredicted burst %f  |\n", decay_coefficient * running->predicted_burst + (1 - decay_coefficient) * running->burst);
+                printf("|\t\tpredicted burst %f |\n", decay_coefficient * running->predicted_burst + (1 - decay_coefficient) * running->burst);
               running->predicted_burst = decay_coefficient * running->predicted_burst + (1 - decay_coefficient) * running->burst;
               running->burst = 0;
               List_pushBack(&os->waiting, (ListItem*) running);
@@ -352,16 +381,46 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
       cpu->running=(FakePCB*) List_popFront(&os->ready);
     }
   }
-  
-  printf("ready processes:\t");
-  aux = os->ready.first;
-  if(!aux)
-    printf("-");
-  while (aux){
-    printf("[%d] ", ((FakePCB*)aux)->pid);
-    aux = aux->next;
+  if(os->max_priority == -1){
+    printf("ready processes:\t");
+    aux = os->ready.first;
+    if(!aux)
+      printf("-");
+    while (aux){
+      printf("[%d] ", ((FakePCB*)aux)->pid);
+      aux = aux->next;
+    }
+    printf("\n\n");
+  } 
+  //Se vengono utilizzate code di priorità, se il tempo nella rispettiva coda di un PCB è pari a 10
+  //la priorità del processo viene aumentata di 1, inserendolo così nella giusta coda
+  else{
+    for(int i = 0; i <= os->max_priority; i++){
+      printf("ready processes in queue with priority %d:\t", i);
+      aux = os->priority_queues[i].first;
+      if(!aux)
+        printf(" -");
+      while (aux){
+        if(((FakePCB*)aux)->readyTime != os->timer)
+          ((FakePCB*)aux)->aging ++;
+        if(((FakePCB*)aux)->aging == 10){
+          List_detach(&os->priority_queues[((FakePCB*)aux)->time_priority], aux);
+          ((FakePCB*)aux)->aging = 0;
+          if(((FakePCB*)aux)->time_priority > 0)
+            ((FakePCB*)aux)->time_priority --;
+          else 
+            ((FakePCB*)aux)->time_priority = 0;
+          
+          List_pushBack(&os->priority_queues[((FakePCB*)aux)->time_priority], aux);
+          
+        }
+        printf("[%d (%d)] ", ((FakePCB*)aux)->pid, ((FakePCB*)aux)->aging);
+        aux = aux->next;
+      }
+      printf("\n");
+    }
+    printf("\n");
   }
-  printf("\n\n");
 
   printf("pending processes:\t");
   aux = os->waiting.first;
@@ -381,6 +440,7 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
 
 
 void FakeOS_destroy(FakeOS* os) {
+
   // Libera i processi della lista contenente tutti i processi
   ListItem* currentItem = os->all_processes.first;
   while (currentItem) {
@@ -389,6 +449,7 @@ void FakeOS_destroy(FakeOS* os) {
     free(pcb); // Liberare l'elemento della lista e il suo contenuto
     currentItem = nextItem;
   }
+
   // Deallocazione delle CPU
   currentItem = os->cpu_list.first;
   while (currentItem) {
@@ -401,5 +462,10 @@ void FakeOS_destroy(FakeOS* os) {
     
     // Avanza all'elemento successivo nella lista
     currentItem = nextItem;
+  }
+
+  //Libera lo spazio delle code di ready allocate se sono state utilizzate code di priorità
+  for(int i = 0; i <= os->max_priority; i++){
+    free(&os->priority_queues[i]);
   }
 }

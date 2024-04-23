@@ -20,13 +20,17 @@ int FakeProcess_load(FakeProcess* p, const char* filename) {
     // got line in buf
     int pid=-1;
     int arrival_time=-1;
+    
+    int nominal_priority = -1;
+
     int num_tokens=0;
     int duration=-1;
 
-    num_tokens=sscanf(buffer, "PROCESS %d %d", &pid, &arrival_time);
-    if (num_tokens==2 && p->pid<0){
+    num_tokens=sscanf(buffer, "PROCESS %d %d %d", &pid, &arrival_time, &nominal_priority);
+    if (num_tokens==3 && p->pid<0){
       p->pid=pid;
       p->arrival_time=arrival_time;
+      p->nominal_priority = nominal_priority;
       goto next_round;
     }
     num_tokens=sscanf(buffer, "CPU_BURST %d", &duration);
@@ -67,7 +71,7 @@ int FakeProcess_save(const FakeProcess* p, const char* filename){
   FILE* f=fopen(filename, "w");
   if (! f)
     return -1;
-  fprintf(f, "PROCESS %d %d\n", p->pid, p->arrival_time);
+  fprintf(f, "PROCESS %d %d %d\n", p->pid, p->arrival_time, p->nominal_priority);
   ListItem* aux=p->events.first;
   int num_events;
   while(aux) {

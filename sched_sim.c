@@ -27,6 +27,32 @@ typedef struct{
   double alpha;       //Fattore di previsione
 } SchedSJFArgs; 
 
+//Funzione che trova il numero massimo relativo alle priorità dei processi
+int find_max_priority(FakeOS* os){
+  int max_priority = -1;
+  ListItem* currentItem = os->processes.first;
+  while(currentItem){
+    if(((FakeProcess*)currentItem)->nominal_priority > max_priority)
+      max_priority = ((FakeProcess*)currentItem)->nominal_priority;
+    currentItem = currentItem->next;
+  }
+  return max_priority;
+}
+
+//Funzione utile ad allocare lo spazio di code in un sistema che utilizza code di priorità
+void create_priority_queues(FakeOS* os){
+  int max_priority = find_max_priority(os);
+
+  os->priority_queues = malloc(sizeof(ListHead) * (max_priority+1));
+  for(int i = 0; i <= max_priority; i++){
+    
+    List_init(&os->priority_queues[i]);
+    //printf("Queue %d initialized at address %p with size %d\n", i, &(os->priority_queues[i]), os->priority_queues[i].size);
+  }
+
+}
+
+
 //Funzione che verific se ci sono CPU in esecuzione
 int running_cpu(FakeOS* os){
   ListItem* currentItem = os->cpu_list.first;
@@ -44,17 +70,17 @@ int running_cpu(FakeOS* os){
 
 
 //Funzione che restituisce il processo con il burst più breve nella coda dei processi pronti
-FakePCB* shortestJobPCB(FakeOS* os, int count) {
+FakePCB* shortestJobPCB(FakeOS* os, ListHead* processes, int count) {
   //Se non ci sono processi nella coda di ready restituisce NULL
-  if(!os->ready.first)
+  if(!processes->first)
     return NULL;
 
   //Iniziallizza il PCB relativo al processo più breve con il primo processo della coda di ready
-  FakePCB* shortestJobItem = (FakePCB*) os->ready.first;
+  FakePCB* shortestJobItem = (FakePCB*) processes->first;
   //Inizializza il tempo di burst più breve con un valore abbastanza grande
   float shortestJob = 9999.000000;
   //Itero attraverso la lista dei processi pronti
-  ListItem* currentItem = os->ready.first;
+  ListItem* currentItem = processes->first;
   while(currentItem){
     FakePCB* pcb = (FakePCB*) currentItem;
     currentItem = currentItem->next;
@@ -132,7 +158,7 @@ void schedSJFPREEMPTIVE(FakeOS* os, void* args_){
   
 
     //Assegno al PCB il processo con durata di burst più breve
-    pcb = shortestJobPCB(os, os->ready.size);
+    pcb = shortestJobPCB(os, &os->ready, os->ready.size);
     if(pcb){
       List_detach(&os->ready, (ListItem*) pcb);
       cpu->running = pcb;
@@ -162,10 +188,102 @@ void schedSJFPREEMPTIVE(FakeOS* os, void* args_){
 
 
 
+//Funzione che selezione la coda con priorità più alta contenente almeno un processo pronto
+int highestPriorityAvaible(FakeOS* os) {
+  for (int i = 0; i <= os->max_priority; i++) {
+    if (os->priority_queues[i].first) {
+      return i;  // ritorna il primo PCB dalla coda di priorità più alta non vuota
+    }
+  }
+  return -1;  // Nessun processo è pronto per l'esecuzione
+}
 
+//Algoritmo di scheduling SJF preemptive con priorità che utilizza code multi-livello
+void schedSJFPriority(FakeOS* os, void* args_){
+  SchedSJFArgs* args=(SchedSJFArgs*)args_;
 
+  //Itera attraverso la lista delle CPU
+  ListItem* currentItem = os->cpu_list.first;
+  while (currentItem){
+    FakeCPU* cpu = (FakeCPU*) currentItem;
+    currentItem = currentItem->next;
+    lockMutex(cpu); //Aquisisce il mutex della CPU
+    
+    //Calcolo l'indice della coda con priorità più alta con almeno un processo pronto
+    int highestIndexAvaible = highestPriorityAvaible(os);
+    //Se non ci sono processi nella pronti nelle code di priorità rilascia il mutex e ritorna
+    if (highestIndexAvaible == -1){
+      unlockMutex(cpu);
+      return;
+    }
 
+    //Inizializza il pcb con il primo processo della coda con almeno un processo con priorità più alta
+    FakePCB* pcb = (FakePCB*)os->priority_queues[highestIndexAvaible].first;
+    
+    
+    //Evita di eseguire un processo nella stessa epoca in cui viene inserito nella coda di ready
+    //se non si tratta dell'epoca in cui il processo viene creato
+    if (pcb->readyTime == os->timer && pcb->readyTime != pcb->arrivalTime) {
+      assert(pcb->events.first); //Assicura che il processo abbia eventi
+      ProcessEvent* e = (ProcessEvent*)pcb->events.first;
+      assert(e->type==CPU);
 
+      //Assegna al quanto di tempo il valore del burst predetto
+      args->quantum = (int) floor(pcb->predicted_burst);
+      
+      //Se la durata dell'evento è maggiore del quantum, creo un nuovo evento con durata quantum
+      //e aggiorno la durata dell'evento originale
+      if (e->duration>args->quantum) {
+        ProcessEvent* qe=(ProcessEvent*)malloc(sizeof(ProcessEvent));
+        qe->list.prev=qe->list.next=0;
+        qe->type=CPU;
+        qe->duration=args->quantum;
+        e->duration-=args->quantum;
+        List_pushFront(&pcb->events, (ListItem*)qe);
+      }
+      
+      unlockMutex(cpu);
+      continue;
+    }
+
+    //Se c'è un processo in esecuzione sulla CPU, lo toglie alla CPU reinserisce nella coda di priorità
+    //di appartenenza
+    if (cpu->running) {
+      List_pushFront(&os->priority_queues[cpu->running->time_priority], (ListItem*)cpu->running);
+      cpu->running = NULL;
+    }
+
+    //Calcolo l'indice della coda con priorità più alta con almeno un processo pronto
+    highestIndexAvaible = highestPriorityAvaible(os);
+    //Assegno al PCB il processo con durata di burst più breve
+    pcb = shortestJobPCB(os, &os->priority_queues[highestIndexAvaible], os->priority_queues[highestIndexAvaible].size);
+    
+
+    if(pcb){
+      List_detach(&os->priority_queues[highestIndexAvaible], (ListItem*) pcb);
+      cpu->running = pcb;
+    }
+
+    assert(pcb->events.first); //Assicura che il processo abbia eventi
+    ProcessEvent* e = (ProcessEvent*)pcb->events.first;
+    assert(e->type==CPU);
+
+    //Assegna al quanto di tempo il valore del burst predetto
+    args->quantum = (int) floor(pcb->predicted_burst);
+
+    //Se la durata dell'evento è maggiore del quantum, creo un nuovo evento con durata quantum
+    //e aggiorno la durata dell'evento originale
+    if (e->duration>args->quantum) {
+      ProcessEvent* qe=(ProcessEvent*)malloc(sizeof(ProcessEvent));
+      qe->list.prev=qe->list.next=0;
+      qe->type=CPU;
+      qe->duration=args->quantum;
+      e->duration-=args->quantum;
+      List_pushFront(&pcb->events, (ListItem*)qe);
+    }
+    unlockMutex(cpu); //Rilascia il mutex della CPU
+  }
+};
 
 
 
@@ -215,12 +333,18 @@ char getch() {
 void drawBar(int numCPU, int selectedCPU) {
     printf("\n"ANSI_COLOR_WHITE ANSI_COLOR_BOLD ANSI_COLOR_BLACK"Select the number of CPUs:\n\n"ANSI_COLOR_RESET"\n");
     for (int i = 1; i <= numCPU; i++) {
-        if (i == selectedCPU) {
-            printf("\033[1;32m"); // Imposta il colore verde per la CPU selezionata
-            printf("  \u25A0 CPU %d ", i); // Utilizza il carattere quadrato pieno Unicode per rappresentare la CPU selezionata
+        if (i == selectedCPU && i != 10) {
+          printf("\033[1;32m"); // Imposta il colore verde per la CPU selezionata
+          printf("  \u25A0 CPU %d  ", i); // Utilizza il carattere quadrato pieno Unicode per rappresentare la CPU selezionata
+        } else if (i == selectedCPU && i == 10) {
+          printf("\033[1;32m"); // Imposta il colore verde per la CPU selezionata
+          printf("  \u25A0 CPU %d ", i); // Utilizza il carattere quadrato pieno Unicode per rappresentare la CPU selezionata
+        } else if(i != 10 && i != selectedCPU){
+          printf("\033[0m"); // Reimposta il colore di default
+          printf("   \u25A1 CPU %d  ", i); // Utilizza il carattere quadrato vuoto Unicode per rappresentare le CPU non selezionate
         } else {
-            printf("\033[0m"); // Reimposta il colore di default
-            printf("   \u25A1 CPU %d ", i); // Utilizza il carattere quadrato vuoto Unicode per rappresentare le CPU non selezionate
+          printf("\033[0m"); // Reimposta il colore di default
+          printf("   \u25A1 CPU %d ", i); // Utilizza il carattere quadrato vuoto Unicode per rappresentare le CPU non selezionate
         }
         // Stampa una barra grafica per ogni CPU
         for (int j = 1; j <= 10; j++) {
@@ -383,7 +507,7 @@ int main(int argc, char** argv) {
   
   
   //Inizio della simulazione...
-  writtenPrints("\n"ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_RED"[START SIMULATION...]\n\n"ANSI_COLOR_RESET"\n");
+  writtenPrints("\n"ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_RED"[START SIMULATION]\n\n"ANSI_COLOR_RESET"\n");
 
   //SJF PREEMPTIVE
   FakeOS_init(&os);
@@ -391,7 +515,7 @@ int main(int argc, char** argv) {
   ssjf_args.quantum=7;
   ssjf_args.alpha = decay_coefficient;
   os.schedule_args=&ssjf_args;
-  os.schedule_fn=schedSJFPREEMPTIVE;
+  os.schedule_fn=schedSJFPriority;
 
 
   //Inizializzazione delle CPU
@@ -425,25 +549,40 @@ int main(int argc, char** argv) {
       List_pushBack(&os.processes, (ListItem*)new_process_ptr);
     }
   }
-  writtenPrint("\n\nNumber of processes in queue ");
+  writtenPrint("\n\nNumber of processes in queue: ");
   printf("%d", os.processes.size);
   writtenPrint("\n\n\n\n\n");
-  writtenPrints(ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_GREEN"[EXECUTION... ... ... ...]\n\n\n"ANSI_COLOR_RESET);
+  writtenPrints(ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_GREEN"[EXECUTION]\n\n\n"ANSI_COLOR_RESET);
   
+  //Se lo scheduler selezionato utilizza code di priorità crea le varie code
+  if(os.schedule_fn == schedSJFPriority){
+    create_priority_queues(&os);
+    os.max_priority = find_max_priority(&os);
+    printf("\n\npriorità massima: %d\n\n", os.max_priority);
+    
 
-
-  while(running_cpu(&os)
-        || os.ready.first
+    while(running_cpu(&os)
+        || highestPriorityAvaible(&os) != -1
         || os.waiting.first
         || os.processes.first){
-    FakeOS_simStep(&os, selectedCPU, decay_coefficient);
+      FakeOS_simStep(&os, selectedCPU, decay_coefficient);
+    }
+  }
+  else{
+    while(running_cpu(&os)
+          || os.ready.first
+          || os.waiting.first
+          || os.processes.first){
+      FakeOS_simStep(&os, selectedCPU, decay_coefficient);
+    }
   }
 
+
   //Fine della simulazione...
-  writtenPrints("\n\n\n"ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_RED"[END OF SIMULATION...]"ANSI_COLOR_RESET"\n");
+  writtenPrints("\n\n\n"ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_RED"[END OF SIMULATION]"ANSI_COLOR_RESET"\n");
 
   //Stampa delle statistiche
-  writtenPrints("\n\n\n"ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_GREEN"[FINAL REPORT...]"ANSI_COLOR_RESET"\n");
+  writtenPrints("\n\n\n"ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_GREEN"[FINAL REPORT]"ANSI_COLOR_RESET"\n");
 
   printf("\n\n+----------------------------------------------------------------------+\n");
   printf("|" ANSI_COLOR_WHITE ANSI_COLOR_BOLD "                                                                      " ANSI_COLOR_RESET "|\n");

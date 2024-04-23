@@ -22,6 +22,10 @@ typedef struct {
   int tat;                 //Variabile contenente il tempo impiegato per concludere il processo
   int wt;                  //Variabile contenente il tempo trascorso dal processo nella lista di ready
 
+  int nominal_priority;   //Variabile contenente la priorità nominale del processo
+  int time_priority;      //Variabile contenente la priorità affetta da aging del processo
+  int aging;              //Variabile contenente il tempo che il processo ha trascorso nella propria coda di priorità
+
 } FakePCB;
 
 struct FakeOS;
@@ -39,12 +43,17 @@ typedef struct FakeOS{
 
   ListHead cpu_list;          // Lista delle CPU
 
+  ListHead* priority_queues;  //Lista delle code di priorità
+
+  int max_priority;           //Variabile contenente la priorità massima trovata tra i vari processi
+
 } FakeOS;
 
 void FakeOS_init(FakeOS* os);
 void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient);
 void FakeOS_destroy(FakeOS* os);
 
+int find_max_priority(FakeOS* os);
 
 
 void initMutex_process(FakeProcess* process);
