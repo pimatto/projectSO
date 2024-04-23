@@ -16,6 +16,3 @@ typedef struct {
 
 
 void FakeCPU_init(FakeCPU* cpu);
-void initMutex(FakeCPU* cpu);
-void lockMutex(FakeCPU* cpu);
-void unlockMutex(FakeCPU* cpu);

@@ -1,6 +1,5 @@
 #include "fake_process.h"
 #include "linked_list.h"
-#include <pthread.h>
 #pragma once
 
 
@@ -9,7 +8,6 @@ typedef struct {
   int pid;
   
   ListHead events;
-  pthread_mutex_t mutex;   //Mutex per il processo
   
   double predicted_burst;   //Valore predetto del burst
   double burst;             //Valore del burst attuale
@@ -55,7 +53,3 @@ void FakeOS_destroy(FakeOS* os);
 
 int find_max_priority(FakeOS* os);
 
-
-void initMutex_process(FakeProcess* process);
-void lockMutex_process(FakeProcess* process);
-void unlockMutex_process(FakeProcess* process);

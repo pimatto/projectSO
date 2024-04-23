@@ -7,20 +7,6 @@
 
 
 
-// Inizializzazione del mutex per una CPU
-void initMutex_pcb(FakePCB* pcb) {
-    pthread_mutex_init(&pcb->mutex, NULL);
-}
-
-// Acquisizione del mutex prima di eseguire un processo su una CPU
-void lockMutex_pcb(FakePCB* pcb) {
-    pthread_mutex_lock(&pcb->mutex);
-}
-
-// Rilascio del mutex dopo aver eseguito un processo su una CPU
-void unlockMutex_pcb(FakePCB* pcb) {
-    pthread_mutex_unlock(&pcb->mutex);
-}
 
 void FakeOS_init(FakeOS* os) {
   List_init(&os->ready);
@@ -67,8 +53,6 @@ void FakeOS_createProcess(FakeOS* os, FakeProcess* p) {
 
   new_pcb->burst = 0.000000;
   new_pcb->predicted_burst = 10.000000;
-  //Inizializzo il mutex
-  initMutex_pcb(new_pcb);
 
   new_pcb->nominal_priority = p->nominal_priority;
   new_pcb->time_priority = p->nominal_priority;
@@ -160,7 +144,6 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
       printf("+-----------------------------------------+\n");
     }
     if (e->duration==0){
-      unlockMutex_pcb(pcb);
       printf("|\t\tend burst                 |\n");
       List_popFront(&pcb->events);
       free(e);
@@ -252,7 +235,6 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
     else
       printf("|\trunning pid: %d                   |\n", running?running->pid:-1);
     if (running) {
-      lockMutex_pcb(running);
       if(running->events.first){
         ProcessEvent* e=(ProcessEvent*) running->events.first;
         assert(e->type==CPU);
@@ -291,7 +273,6 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
         }
         if (e->duration==0){
           printf("|\t\tend burst                 |\n");
-          unlockMutex_pcb(running);
           List_popFront(&running->events);
           free(e);
 
@@ -348,7 +329,7 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
               else
                 printf("|\t\tburst time: %f     |\n", running->burst);
               if(running->predicted_burst<10.000000)
-                printf("|\t\tpredicted burst %f |\n", decay_coefficient * running->predicted_burst + (1 - decay_coefficient) * running->burst);
+                printf("|\t\tpredicted burst %f  |\n", decay_coefficient * running->predicted_burst + (1 - decay_coefficient) * running->burst);
               else
                 printf("|\t\tpredicted burst %f |\n", decay_coefficient * running->predicted_burst + (1 - decay_coefficient) * running->burst);
               running->predicted_burst = decay_coefficient * running->predicted_burst + (1 - decay_coefficient) * running->burst;
@@ -401,7 +382,7 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
       if(!aux)
         printf(" -");
       while (aux){
-        if(((FakePCB*)aux)->readyTime != os->timer)
+        if(((FakePCB*)aux)->readyTime != os->timer || os->timer == ((FakePCB*)aux)->arrivalTime)
           ((FakePCB*)aux)->aging ++;
         if(((FakePCB*)aux)->aging == 10){
           List_detach(&os->priority_queues[((FakePCB*)aux)->time_priority], aux);
@@ -414,7 +395,7 @@ void FakeOS_simStep(FakeOS* os, int sel_cpu, float decay_coefficient){
           List_pushBack(&os->priority_queues[((FakePCB*)aux)->time_priority], aux);
           
         }
-        printf("[%d (%d)] ", ((FakePCB*)aux)->pid, ((FakePCB*)aux)->aging);
+        printf("[%d] ", ((FakePCB*)aux)->pid);
         aux = aux->next;
       }
       printf("\n");
@@ -459,13 +440,15 @@ void FakeOS_destroy(FakeOS* os) {
     
     // Dealloca l'elemento corrente
     free(cpu);
-    
+    currentItem = NULL;
+
     // Avanza all'elemento successivo nella lista
     currentItem = nextItem;
   }
-
+  
   //Libera lo spazio delle code di ready allocate se sono state utilizzate code di priorità
-  for(int i = 0; i <= os->max_priority; i++){
-    free(&os->priority_queues[i]);
+  if(os->max_priority != -1){
+    free(os->priority_queues);
+    os->priority_queues = NULL;
   }
 }

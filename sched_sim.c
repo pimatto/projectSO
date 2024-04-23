@@ -6,6 +6,7 @@
 #include <math.h>
 #include "fake_os.h"
 #include "fake_cpu.h"
+#include <string.h>
 
 
 //Definizione dei codici per i colori di testo e di sfondo (ANSI ESCAPE)
@@ -112,11 +113,9 @@ void schedSJFPREEMPTIVE(FakeOS* os, void* args_){
   while (currentItem){
     FakeCPU* cpu = (FakeCPU*) currentItem;
     currentItem = currentItem->next;
-    lockMutex(cpu); //Aquisisce il mutex della CPU
     
-    //Se non ci sono processi nella coda di ready rilascia il mutex e ritorna
+    //Se non ci sono processi nella coda di ready rilascia il e ritorna
     if (! os->ready.first){
-      unlockMutex(cpu);
       return;
     }
 
@@ -144,7 +143,6 @@ void schedSJFPREEMPTIVE(FakeOS* os, void* args_){
         List_pushFront(&pcb->events, (ListItem*)qe);
       }
       
-      unlockMutex(cpu);
       continue;
     }
 
@@ -181,7 +179,6 @@ void schedSJFPREEMPTIVE(FakeOS* os, void* args_){
       e->duration-=args->quantum;
       List_pushFront(&pcb->events, (ListItem*)qe);
     }
-    unlockMutex(cpu); //Rilascia il mutex della CPU
   }
 };
 
@@ -207,13 +204,11 @@ void schedSJFPriority(FakeOS* os, void* args_){
   while (currentItem){
     FakeCPU* cpu = (FakeCPU*) currentItem;
     currentItem = currentItem->next;
-    lockMutex(cpu); //Aquisisce il mutex della CPU
     
     //Calcolo l'indice della coda con priorità più alta con almeno un processo pronto
     int highestIndexAvaible = highestPriorityAvaible(os);
-    //Se non ci sono processi nella pronti nelle code di priorità rilascia il mutex e ritorna
+    //Se non ci sono processi nella pronti nelle code di priorità e ritorna
     if (highestIndexAvaible == -1){
-      unlockMutex(cpu);
       return;
     }
 
@@ -242,7 +237,6 @@ void schedSJFPriority(FakeOS* os, void* args_){
         List_pushFront(&pcb->events, (ListItem*)qe);
       }
       
-      unlockMutex(cpu);
       continue;
     }
 
@@ -281,7 +275,6 @@ void schedSJFPriority(FakeOS* os, void* args_){
       e->duration-=args->quantum;
       List_pushFront(&pcb->events, (ListItem*)qe);
     }
-    unlockMutex(cpu); //Rilascia il mutex della CPU
   }
 };
 
@@ -522,7 +515,14 @@ int main(int argc, char** argv) {
   int aux = 1;
   for(int i = 0; i < selectedCPU; i++){
     //Allocazione di una nuova CPU
+    //FakeCPU* cpu = (FakeCPU*)malloc(sizeof(FakeCPU));
+
     FakeCPU* cpu = (FakeCPU*)malloc(sizeof(FakeCPU));
+    if (cpu == NULL) {
+        perror("Failed to allocate memory for CPU");
+        exit(EXIT_FAILURE);
+    }
+    memset(cpu, 0, sizeof(FakeCPU));
 
     //Inizializzazione della CPU
     FakeCPU_init(cpu);
@@ -558,7 +558,6 @@ int main(int argc, char** argv) {
   if(os.schedule_fn == schedSJFPriority){
     create_priority_queues(&os);
     os.max_priority = find_max_priority(&os);
-    printf("\n\npriorità massima: %d\n\n", os.max_priority);
     
 
     while(running_cpu(&os)
