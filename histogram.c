@@ -115,12 +115,12 @@ void read_traces_from_folder(const char *foldername, int *cpu_histogram, int *io
 void compute_cumulative(float *probabilities, float *cumulative, int size){
     // Primo valore dell'array cumulativo uguale al primo valore delle probabilità
     cumulative[0] = probabilities[0];
-    printf("Cumulativa [0]: %.4f\n", cumulative[0]);
+    //printf("Cumulativa [0]: %.4f\n", cumulative[0]);
     // Iterazione dall'indice 1 a size-1
     for(int i=1; i<size; i++){
         // Ogni elemento cumulativo è la somma del valore precedente e della probabilità corrente
         cumulative[i] = cumulative[i-1] + probabilities[i];
-        printf("Cumulativa [%d]: %.4f\n", i, cumulative[i]);
+    //    printf("Cumulativa [%d]: %.4f\n", i, cumulative[i]);
     }
 }
 
@@ -129,7 +129,7 @@ void compute_cumulative(float *probabilities, float *cumulative, int size){
 int sample_value(float *cumulative, int size){
     // Generazione numero casuale uniforme nell'intervallo [0, 1]
     double random_value = drand48();
-    printf("Valore casuale generato: %.4f\n", random_value);
+    //printf("Valore casuale generato: %.4f\n", random_value);
 
     // Inizializzazione limite inferiore e superiore per la ricerca binaria
     int left = 0;
@@ -144,8 +144,8 @@ int sample_value(float *cumulative, int size){
             // Se sono al primo elemento o il valore casuale è maggiore del valore cumulativo 
             // precedente sono nell'intervallo corretto
             if(mid == 0 || random_value > cumulative[mid-1]){
-                printf("Valore campionato: %d\n", mid);
-                printf("Valore pizzicato: %.4f\n\n", cumulative[mid]);
+    //            printf("Valore campionato: %d\n", mid);
+    //            printf("Valore pizzicato: %.4f\n\n", cumulative[mid]);
                 return mid;
             }
             // Continua la ricerca spostando il limite superiore
@@ -209,7 +209,7 @@ void FakeProcess_generate(int cpu_count, int io_count, int arrival_count, int pr
     float priority_probabilities[MAX_PRIORITY] = {0};
 
     // Lettura delle tracce dalla cartella "trace_input" e aggiornamento degli istogrammi
-    printf("Leggo i file di traccia dalla cartella 'trace_input'\n");
+    //printf("Leggo i file di traccia dalla cartella 'trace_input'\n");
     const char *foldername = "../input_trace";
     read_traces_from_folder(foldername, cpu_histogram, io_histogram,
                             arrival_histogram, priority_histogram,
@@ -227,6 +227,7 @@ void FakeProcess_generate(int cpu_count, int io_count, int arrival_count, int pr
     compute_probability(arrival_histogram, arrival_count, arrival_probabilities, MAX_ARRIVAL);
     compute_probability(priority_histogram, priority_count, priority_probabilities, MAX_PRIORITY);
 
+    /*
     // Stampa le probabilità per CPU burst
     printf("\nProbabilità CPU burst:\n");
     for (int i = 0; i < MAX_BURST; i++) {
@@ -258,6 +259,7 @@ void FakeProcess_generate(int cpu_count, int io_count, int arrival_count, int pr
             printf("Valore %d: %.4f\n", i, priority_probabilities[i]);
         }
     }
+    */
 
     //Creazione array per le distribuzioni cumulative calcolate
     float cpu_cumulative[MAX_BURST];
@@ -266,13 +268,13 @@ void FakeProcess_generate(int cpu_count, int io_count, int arrival_count, int pr
     float arrival_cumulative[MAX_ARRIVAL];
 
     //Calcolo della distribuzione cumulativa per CPU burst, I/O burst, priorità e tempo di arrivo
-    printf("\nCumulativa CPU Burst:\n");
+    //printf("\nCumulativa CPU Burst:\n");
     compute_cumulative(cpu_probabilities, cpu_cumulative, MAX_BURST);
-    printf("\nCumulativa IO Burst:\n");
+    //printf("\nCumulativa IO Burst:\n");
     compute_cumulative(io_probabilities, io_cumulative, MAX_BURST);
-    printf("\nCumulativa priorità:\n");
+    //printf("\nCumulativa priorità:\n");
     compute_cumulative(priority_probabilities, priority_cumulative, MAX_PRIORITY);
-    printf("\nCumulativa arrivi:\n");
+    //printf("\nCumulativa arrivi:\n");
     compute_cumulative(arrival_probabilities, arrival_cumulative, MAX_ARRIVAL);
 
 
@@ -283,8 +285,8 @@ void FakeProcess_generate(int cpu_count, int io_count, int arrival_count, int pr
         char filename[20];
         snprintf(filename, sizeof(filename), "p%d.txt", i);
         generate_trace(cpu_cumulative, io_cumulative, priority_cumulative, arrival_cumulative, MAX_BURST, 4, i, filename);
-        printf("Traccia per il processo %d generata in '%s'.\n", i, filename);
+    //    printf("Traccia per il processo %d generata in '%s'.\n", i, filename);
     }
     
-    printf("Traccia generata con successo in 'p*.txt'.\n");
+    //printf("Traccia generata con successo in 'p*.txt'.\n");
 }
