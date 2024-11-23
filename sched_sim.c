@@ -6,6 +6,7 @@
 #include <math.h>
 #include "fake_os.h"
 #include "fake_cpu.h"
+#include "histogram.h"
 #include <string.h>
 
 
@@ -407,6 +408,13 @@ int main(int argc, char** argv) {
   //Avvio del sistema...
   writtenPrints("\n"ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_YELLOW"[SYSTEM BOOTING UP...]"ANSI_COLOR_RESET"\n\n");
 
+
+  //Generazione processi tramite istogramma
+  int cpu_count = 0;
+  int io_count = 0;
+  int arrival_count = 0;
+  int priority_count = 0;
+  FakeProcess_generate(cpu_count, io_count, arrival_count, priority_count);
   
 
   //Stampa il nome dello scheduler con uno stile accattivante
