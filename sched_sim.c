@@ -29,6 +29,11 @@ typedef struct{
   double alpha;       //Fattore di previsione
 } SchedSJFArgs; 
 
+//Struttura per memorizzare gli argomenti dello scheduler RR
+typedef struct{
+  int quantum;        //Lunghezza del quanto
+} SchedRRArgs; 
+
 //Funzione che trova il numero massimo relativo alle priorità dei processi
 int find_max_priority(FakeOS* os){
   int max_priority = -1;
@@ -55,7 +60,7 @@ void create_priority_queues(FakeOS* os){
 }
 
 
-//Funzione che verific se ci sono CPU in esecuzione
+//Funzione che verifica se ci sono CPU in esecuzione
 int running_cpu(FakeOS* os){
   ListItem* currentItem = os->cpu_list.first;
   while(currentItem){
@@ -280,6 +285,57 @@ void schedSJFPriority(FakeOS* os, void* args_){
 };
 
 
+//Algoritmo di scheduling RR con priorità che utilizza code multi-livello
+void schedRRPriority(FakeOS* os, void* args_){
+  SchedRRArgs* args=(SchedRRArgs*)args_;
+
+  //Itera attraverso la lista delle CPU
+  ListItem* currentItem = os->cpu_list.first;
+  while (currentItem){
+    FakeCPU* cpu = (FakeCPU*) currentItem;
+    currentItem = currentItem->next;
+    
+    //Calcolo l'indice della coda con priorità più alta con almeno un processo pronto
+    int highestIndexAvaible = highestPriorityAvaible(os);
+    //Se non ci sono processi nella pronti nelle code di priorità e ritorna
+    if (highestIndexAvaible == -1){
+      return;
+    }
+
+    //Inizializza il pcb con il primo processo della coda con almeno un processo con priorità più alta
+    FakePCB* pcb = (FakePCB*)os->priority_queues[highestIndexAvaible].first;
+    if(!pcb)
+      continue;
+    // Evita schedulazione se appena tornato da I/O
+    if (pcb->readyTime == os->timer && pcb->readyTime != pcb->arrivalTime) {
+      continue;
+    }
+
+    if (cpu->running) {
+      continue;
+    }
+
+    pcb = (FakePCB*)List_popFront(&os->priority_queues[highestIndexAvaible]);
+    cpu->running = pcb;
+    
+    assert(pcb->events.first); //Assicura che il processo abbia eventi
+    ProcessEvent* e = (ProcessEvent*)pcb->events.first;
+    assert(e->type==CPU);
+
+    //Se la durata dell'evento è maggiore del quantum, creo un nuovo evento con durata quantum
+    //e aggiorno la durata dell'evento originale
+    if (e->duration>args->quantum) {
+      ProcessEvent* qe=(ProcessEvent*)malloc(sizeof(ProcessEvent));
+      qe->list.prev=qe->list.next=0;
+      qe->type=CPU;
+      qe->duration=args->quantum;
+      e->duration-=args->quantum;
+      List_pushFront(&pcb->events, (ListItem*)qe);
+    }
+  }
+};
+
+
 
 
 
@@ -417,11 +473,65 @@ int main(int argc, char** argv) {
   FakeProcess_generate(cpu_count, io_count, arrival_count, priority_count);
   
 
-  //Stampa il nome dello scheduler con uno stile accattivante
-  printf("------------------------------------------------------------------------\n");
-  writtenPrint("\t    >> Shortest Job First Preemptive Scheduler <<    \n");
-  printf("------------------------------------------------------------------------\n\n");
+  //Selezione scheduler
+  printf("\n"ANSI_COLOR_WHITE ANSI_COLOR_BOLD ANSI_COLOR_BLACK"Select a scheduling algorithms:\n\n"ANSI_COLOR_RESET"\n");
+  printf("Available Scheduling Algorithms:\n");
+  printf("1. Shortest Job First Preemptive\n");
+  printf("2. Shortest Job First Preemptive with priority queues\n");
+  printf("3. Round Robin with priority queues\n");
 
+  int selectedScheduler = 0;
+  char schedulerInput[10];
+
+  while (1) {
+    printf("\nEnter the number corresponding to the desired scheduler: ");
+    enableKeyboardInput();
+    fgets(schedulerInput, sizeof(schedulerInput), stdin);
+    disableKeyboardInput();
+
+    int temp;
+    char extra;
+
+    // Controlla se c'è solo un numero e NULLA dopo
+    if (sscanf(schedulerInput, " %d %c", &temp, &extra) == 1 &&
+        temp >= 1 && temp <= 3) {
+        selectedScheduler = temp;
+        break;
+    }
+
+    writtenPrint(ANSI_COLOR_RED "\nInvalid selection. Please enter exactly 1, 2, or 3.\n" ANSI_COLOR_RESET);
+  }
+
+
+  
+  writtenPrint("\nYou have selected ");
+  if (selectedScheduler == 1) {
+      writtenPrint("Shortest Job First Preemptive\n");
+  } else if (selectedScheduler == 2) {
+      writtenPrint("Shortest Job First Preemptive with priority queues\n");
+  } else if (selectedScheduler == 3) {
+      writtenPrint("Round Robin with priority queues\n");
+  }
+
+  usleep(1500000);
+  system("clear");
+  if(selectedScheduler == 1){
+    //Stampa il nome dello scheduler 
+    printf("------------------------------------------------------------------------\n");
+    writtenPrint("\t    >> Shortest Job First Preemptive Scheduler <<    \n");
+    printf("------------------------------------------------------------------------\n\n");
+  } else if(selectedScheduler == 2){
+    //Stampa il nome dello scheduler
+    printf("------------------------------------------------------------------------\n");
+    writtenPrint("\t>> Shortest Job First Preemptive Priority Scheduler <<\n");
+    printf("------------------------------------------------------------------------\n\n");
+  } else if(selectedScheduler == 3){
+    //Stampa il nome dello scheduler
+    printf("------------------------------------------------------------------------\n");
+    writtenPrint("\t        >> Round Robin Priority Scheduler <<        \n");
+    printf("------------------------------------------------------------------------\n\n");
+  }
+    
   //Sistema pronto
   writtenPrints("\n"ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_GREEN"[SYSTEM READY]"ANSI_COLOR_RESET"\n\n\n");
 
@@ -510,13 +620,33 @@ int main(int argc, char** argv) {
   //Inizio della simulazione...
   writtenPrints("\n"ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_RED"[START SIMULATION]\n\n"ANSI_COLOR_RESET"\n");
 
-  //SJF PREEMPTIVE
+
   FakeOS_init(&os);
   SchedSJFArgs ssjf_args;
-  ssjf_args.quantum=7;
-  ssjf_args.alpha = decay_coefficient;
-  os.schedule_args=&ssjf_args;
-  os.schedule_fn=schedSJFPriority;
+  SchedRRArgs srr_args;
+  switch (selectedScheduler) {
+    case 1: { // SJF PREEMPTIVE
+      
+      ssjf_args.quantum=7;
+      ssjf_args.alpha = decay_coefficient;
+      os.schedule_args=&ssjf_args;
+      os.schedule_fn=schedSJFPREEMPTIVE;
+      break;
+    }
+    case 2: { // SJF PREEMPTIVE PRIORITY
+      ssjf_args.quantum=7;
+      ssjf_args.alpha = decay_coefficient;
+      os.schedule_args=&ssjf_args;
+      os.schedule_fn=schedSJFPriority;
+      break;
+    }
+    case 3: { // RR PRIORITY
+      srr_args.quantum=7;
+      os.schedule_args=&srr_args;
+      os.schedule_fn=schedRRPriority;
+      break;
+    }
+  }
 
 
   //Inizializzazione delle CPU
@@ -563,7 +693,7 @@ int main(int argc, char** argv) {
   writtenPrints(ANSI_COLOR_BLACK ANSI_COLOR_BOLD ANSI_COLOR_GREEN"[EXECUTION]\n\n\n"ANSI_COLOR_RESET);
   
   //Se lo scheduler selezionato utilizza code di priorità crea le varie code
-  if(os.schedule_fn == schedSJFPriority){
+  if(os.schedule_fn == schedSJFPriority || os.schedule_fn == schedRRPriority){
     create_priority_queues(&os);
     os.max_priority = find_max_priority(&os);
     
